@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: runner-hooks
+  namespace: claude-runners
+data:
+  post-session: |
+    #!/bin/sh
+    # Runs after every session. Push a snapshot branch so uncommitted work survives.
+    set -eu
+    cd "${CLAUDE_RUNNER_CHECKOUT_PATH:-.}" 2>/dev/null || exit 0
+    git -c commit.gpgsign=false add -A >/dev/null 2>&1 || exit 0
+    git -c commit.gpgsign=false commit -qm "wip: snapshot from session ${CLAUDE_RUNNER_SESSION_ID:-unknown}" >/dev/null 2>&1 || exit 0
+    git push -q origin "HEAD:refs/heads/claude/snapshot-${CLAUDE_RUNNER_SESSION_UUID:-unknown}" >/dev/null 2>&1 || true

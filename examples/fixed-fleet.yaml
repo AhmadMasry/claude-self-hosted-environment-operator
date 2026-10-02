@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: claude-runners
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+# Create the Secret from the key copied in claude.ai admin settings, never from a committed file:
+#   (umask 077 && cat > ./environment-secret)   # paste, Enter, Ctrl-D
+#   kubectl -n claude-runners create secret generic claude-env-secret --from-file=environment-secret=./environment-secret
+#   rm ./environment-secret
+apiVersion: selfhosted.claudecode.dev/v1alpha1
+kind: ClaudeEnvironment
+metadata:
+  name: platform
+  namespace: claude-runners
+spec:
+  environmentSecretRef:
+    name: claude-env-secret
+  runner:
+    image: registry.example.com/claude-runner:2.1.280
+    capacity: 1
+    settings:
+      configureGit: true
+      confineRepoSettings: enforce
+      drainWaitSeconds: 300
+      killSessionAfterMinutes: 240
+      releaseIdleSessionMinutes: 30
+      removeSessionState: true
+    lifecycleHooks:
+      name: runner-hooks
+    env:
+      - name: CLAUDE_CODE_DISABLE_ARTIFACT
+        value: "1"
+    podTemplate:
+      resources:
+        requests: {cpu: "1", memory: 4Gi}
+        limits: {memory: 8Gi}
+  fixed:
+    replicas: 3

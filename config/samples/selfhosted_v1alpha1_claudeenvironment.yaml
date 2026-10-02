@@ -1,9 +1,21 @@
 apiVersion: selfhosted.claudecode.dev/v1alpha1
 kind: ClaudeEnvironment
 metadata:
-  labels:
-    app.kubernetes.io/name: claude-selfhosted-operator
-    app.kubernetes.io/managed-by: kustomize
-  name: claudeenvironment-sample
+  name: platform
 spec:
-  # TODO(user): Add fields here
+  environmentSecretRef:
+    name: claude-env-secret
+  runner:
+    image: registry.example.com/claude-runner:2.1.280
+    capacity: 1
+    settings:
+      configureGit: true
+      confineRepoSettings: enforce
+      drainWaitSeconds: 300
+      removeSessionState: true
+    podTemplate:
+      resources:
+        requests: {cpu: "1", memory: 4Gi}
+        limits: {memory: 8Gi}
+  fixed:
+    replicas: 3

@@ -1,135 +1,65 @@
 # claude-selfhosted-operator
-// TODO(user): Add simple overview of use/purpose
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+A Kubernetes operator that runs [Claude Code self-hosted environment](https://code.claude.com/docs/en/self-hosted-environments) runners for you.
+You declare a `ClaudeEnvironment` (short name `cenv`); the operator deploys and supervises the runner
+fleet, wires in your environment Secret, hooks and settings, drains runners safely on rollout, and reports
+health through status conditions and metrics.
 
-## Getting Started
+API: `selfhosted.claudecode.dev/v1alpha1` (provisional until v1.0.0).
 
-### Prerequisites
-- go version v1.24.6+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+**Status.** Fixed-fleet mode (`spec.fixed.replicas`) works. On-demand mode is declared in the API but is
+coming in a later release; for now such a resource reports `Degraded` with reason `UnsupportedMode`.
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+## Quickstart
 
-```sh
-make docker-build docker-push IMG=<some-registry>/claude-selfhosted-operator:tag
-```
+Anthropic publishes no runner image, so you build one. Runner pods run under the Restricted Pod Security Standard.
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+1. **Create an environment in claude.ai.** Enable self-hosted environments, create one, and copy its
+   environment key (see the [Claude docs](https://code.claude.com/docs/en/self-hosted-environments)).
+2. **Create the Secret.** Follow the commented steps at the top of the `ClaudeEnvironment` document in
+   [`examples/fixed-fleet.yaml`](examples/fixed-fleet.yaml): the key goes in via a file with `umask 077`,
+   never into a committed manifest. The Secret key name is `environment-secret`.
+3. **Build and push the runner image.** See [`examples/runner-image`](examples/runner-image/README.md):
 
-**Install the CRDs into the cluster:**
+       docker build --build-arg CLAUDE_CODE_VERSION=<version> -t <registry>/claude-runner:<version> examples/runner-image
+       docker push <registry>/claude-runner:<version>
 
-```sh
-make install
-```
+4. **Install the operator.** A Helm chart is planned; for now use kustomize from a checkout:
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+       make install
+       make deploy IMG=<operator image>
 
-```sh
-make deploy IMG=<some-registry>/claude-selfhosted-operator:tag
-```
+5. **Apply the example.** Edit `runner.image` in `examples/fixed-fleet.yaml` to your image first. The file
+   creates the `claude-runners` namespace, so apply it before the Secret in step 2 if the namespace is new.
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+       kubectl apply -f examples/hooks-configmap.yaml -f examples/fixed-fleet.yaml
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
+   (If the namespace does not exist yet, apply `examples/fixed-fleet.yaml` first, create the Secret, then apply the ConfigMap.)
 
-```sh
-kubectl apply -k config/samples/
-```
+A minimal single-resource sample is in [`config/samples`](config/samples/selfhosted_v1alpha1_claudeenvironment.yaml).
 
->**NOTE**: Ensure that the samples has default values to test it out.
+## Reading status
 
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
+    kubectl get cenv -A
+    kubectl -n claude-runners describe cenv platform
 
-```sh
-kubectl delete -k config/samples/
-```
+The list shows Mode, Ready, Replicas and Age. Conditions on `.status.conditions`:
 
-**Delete the APIs(CRDs) from the cluster:**
+| Condition | Meaning |
+|---|---|
+| `Ready` | The environment is serving as configured |
+| `SecretFound` | The environment Secret and its key exist (`SecretMissing`, `SecretKeyMissing`) |
+| `FleetAvailable` | Enough runners are available |
+| `Progressing` | A rollout or scale change is under way |
+| `Degraded` | Something needs attention, for example `ConfigMapMissing`, `GracePeriodTooShort`, `RunnerFailedStart`, `UnsupportedMode` |
+| `SecretOnRunners` | The Secret is mounted on runner pods |
 
-```sh
-make uninstall
-```
+## Development
 
-**UnDeploy the controller from the cluster:**
+    make test        # unit tests (envtest)
+    make lint
 
-```sh
-make undeploy
-```
+## Learn more
 
-## Project Distribution
-
-Following the options to release and provide this solution to the users.
-
-### By providing a bundle with all YAML files
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/claude-selfhosted-operator:tag
-```
-
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
-
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/claude-selfhosted-operator/<tag or branch>/dist/install.yaml
-```
-
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v2-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
-
-## License
-
-Copyright 2026 Ahmad Masry.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
+- Design: [`docs/superpowers/specs/2026-10-02-claude-selfhosted-operator-design.md`](docs/superpowers/specs/2026-10-02-claude-selfhosted-operator-design.md)
+- Claude docs: [self-hosted environments](https://code.claude.com/docs/en/self-hosted-environments), [deploying them](https://code.claude.com/docs/en/self-hosted-environments-deploy)
