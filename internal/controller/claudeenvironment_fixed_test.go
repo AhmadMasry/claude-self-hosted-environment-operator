@@ -280,6 +280,30 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		key := client.ObjectKeyFromObject(env)
 		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionDegraded), timeout, interval).Should(haveReason(metav1.ConditionTrue, selfhostedv1alpha1.ReasonUnsupportedMode))
 	})
+
+	It("marks the environment Degraded when runner pods keep failing at start", func() {
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
+		env := fixedEnv(ns)
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		key := client.ObjectKeyFromObject(env)
+		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionFleetAvailable), timeout, interval).ShouldNot(BeNil())
+
+		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "platform-runner-abc", Namespace: ns,
+			Labels: builders.RunnerSelectorLabels(env)},
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: builders.RunnerContainerName, Image: "registry.local/runner:2.1.280"}}}}
+		Expect(k8sClient.Create(ctx, pod)).To(Succeed())
+		now := metav1.Now()
+		pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: builders.RunnerContainerName, RestartCount: 3,
+			LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				ExitCode: 1, StartedAt: metav1.NewTime(now.Add(-5 * time.Second)), FinishedAt: now,
+				Message: "[runner:fatal] --use-anthropic-git-proxy requires --capacity 1"}}}}
+		Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
+
+		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionDegraded), timeout, interval).Should(
+			And(haveReason(metav1.ConditionTrue, selfhostedv1alpha1.ReasonRunnerFailedStart),
+				HaveField("Message", ContainSubstring("[runner:fatal]"))))
+	})
 })
 
 func mustQuantity(s string) resource.Quantity { return resource.MustParse(s) }

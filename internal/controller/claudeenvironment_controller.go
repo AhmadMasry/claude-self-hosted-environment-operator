@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -246,8 +247,16 @@ func (r *ClaudeEnvironmentReconciler) reconcileFixed(ctx context.Context, env *s
 	return ctrl.Result{RequeueAfter: resyncPeriod}, nil
 }
 
-// checkRunnerPods is the hook point Task 8 fills in with failed-start detection.
-func (r *ClaudeEnvironmentReconciler) checkRunnerPods(context.Context, *selfhostedv1alpha1.ClaudeEnvironment, *statusPass) error {
+// checkRunnerPods flags a fleet whose runners exit right after starting.
+func (r *ClaudeEnvironmentReconciler) checkRunnerPods(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) error {
+	pods := &corev1.PodList{}
+	if err := r.List(ctx, pods, client.InNamespace(env.Namespace), client.MatchingLabels(builders.RunnerSelectorLabels(env))); err != nil {
+		return err
+	}
+	if failed, msg := detectFailedStart(pods.Items); failed {
+		pass.degrade(selfhostedv1alpha1.ReasonRunnerFailedStart, msg)
+		r.Recorder.Event(env, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonRunnerFailedStart, msg)
+	}
 	return nil
 }
 
@@ -296,6 +305,13 @@ func (r *ClaudeEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.StatefulSet{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.environmentsReferencing(indexSecretName))).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.environmentsReferencing(indexConfigMapNames))).
+		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, o client.Object) []reconcile.Request {
+			name, ok := o.GetLabels()[selfhostedv1alpha1.LabelEnvironment]
+			if !ok || o.GetLabels()[selfhostedv1alpha1.LabelRole] != selfhostedv1alpha1.RoleRunner {
+				return nil
+			}
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: name, Namespace: o.GetNamespace()}}}
+		}), builder.WithPredicates(podStatusChanged())).
 		Named("claudeenvironment").
 		Complete(r)
 }
