@@ -56,6 +56,7 @@ const (
 	ReasonSpawnTimeout                 = "SpawnTimeout"
 	ReasonWorkOrderMissing             = "WorkOrderMissing"
 	ReasonEnvironmentMissing           = "EnvironmentMissing"
+	ReasonPodLost                      = "PodLost"
 	ReasonOrchestratorUnavailable      = "OrchestratorUnavailable"
 	ReasonOnDemandSecretOnOrchestrator = "OnDemandSecretOnOrchestrator"
 	ReasonHookImageUnset               = "HookImageUnset"

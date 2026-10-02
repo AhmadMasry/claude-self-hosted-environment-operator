@@ -160,17 +160,60 @@ var _ = Describe("ClaudeRunner controller", func() {
 		Eventually(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Pod{})) }, timeout, interval).Should(BeTrue())
 	})
 
-	It("fails cleanly when the work-order Secret is missing", func() {
+	It("fails cleanly when the work-order Secret is still missing at the spawn deadline", func() {
 		ns := newNamespace(ctx)
-		Expect(k8sClient.Create(ctx, onDemandEnvObj(ns))).To(Succeed())
+		env := onDemandEnvObj(ns)
+		env.Spec.OnDemand.Orchestrator.ExpectedSpawnSeconds = 10
+		env.Spec.OnDemand.Orchestrator.HookTimeoutSeconds = 4 // the CRD requires hookTimeoutSeconds + 5 < expectedSpawnSeconds
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
 		r := runnerObj(ns, "order-5")
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())
 		key := client.ObjectKeyFromObject(r)
-		Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerFailed))
+		Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerPending))
+		Eventually(runnerPhase(ctx, key), 15*time.Second, interval).Should(Equal(selfhostedv1alpha1.RunnerFailed))
 		got := &selfhostedv1alpha1.ClaudeRunner{}
 		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
 		Expect(got.Status.Reason).To(Equal(selfhostedv1alpha1.ReasonWorkOrderMissing))
 		Consistently(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Pod{})) }, 2*time.Second, interval).Should(BeTrue())
+	})
+
+	It("waits for a work-order Secret that lands after the ClaudeRunner", func() {
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, onDemandEnvObj(ns))).To(Succeed())
+		r := runnerObj(ns, "order-9")
+		Expect(k8sClient.Create(ctx, r)).To(Succeed())
+		key := client.ObjectKeyFromObject(r)
+		time.Sleep(2 * time.Second)
+		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-9"))).To(Succeed())
+
+		Eventually(func() error { return k8sClient.Get(ctx, key, &corev1.Pod{}) }, timeout, interval).Should(Succeed())
+		Eventually(func() string {
+			got := &selfhostedv1alpha1.ClaudeRunner{}
+			_ = k8sClient.Get(ctx, key, got)
+			return got.Status.PodName
+		}, timeout, interval).Should(Equal("order-9"))
+		Expect(runnerPhase(ctx, key)()).To(Equal(selfhostedv1alpha1.RunnerPending))
+	})
+
+	It("fails a runner whose pod disappears instead of starting a second pod", func() {
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, onDemandEnvObj(ns))).To(Succeed())
+		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-10"))).To(Succeed())
+		r := runnerObj(ns, "order-10")
+		Expect(k8sClient.Create(ctx, r)).To(Succeed())
+		key := client.ObjectKeyFromObject(r)
+		Eventually(func() error { return k8sClient.Get(ctx, key, &corev1.Pod{}) }, timeout, interval).Should(Succeed())
+		setPodPhase(ctx, key, corev1.PodRunning, nil)
+		Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerRunning))
+
+		pod := &corev1.Pod{}
+		Expect(k8sClient.Get(ctx, key, pod)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, pod, client.GracePeriodSeconds(0))).To(Succeed())
+		Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerFailed))
+		got := &selfhostedv1alpha1.ClaudeRunner{}
+		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+		Expect(got.Status.Reason).To(Equal(selfhostedv1alpha1.ReasonPodLost))
+		Consistently(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Pod{})) }, 3*time.Second, interval).Should(BeTrue())
 	})
 
 	It("fails cleanly when the environment is missing", func() {

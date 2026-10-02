@@ -43,11 +43,15 @@ import (
 const (
 	defaultRunnerTTL    = 300 * time.Second
 	podDeletionPollWait = 2 * time.Second
+	workOrderPollWait   = 2 * time.Second
 )
 
 // ClaudeRunnerReconciler turns one ClaudeRunner into one single-session pod.
 type ClaudeRunnerReconciler struct {
 	client.Client
+	// Reader is an uncached reader for decisions a lagging informer must not
+	// make: whether the work-order Secret exists and whether the pod is gone.
+	Reader   client.Reader
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 }
@@ -108,18 +112,25 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		}
 		return ctrl.Result{}, err
 	}
-	if err := r.Get(ctx, types.NamespacedName{Name: runner.Spec.WorkOrderSecretRef.Name, Namespace: runner.Namespace}, &corev1.Secret{}); err != nil {
-		if apierrors.IsNotFound(err) {
-			r.fail(runner, selfhostedv1alpha1.ReasonWorkOrderMissing, fmt.Sprintf("work-order Secret %q not found", runner.Spec.WorkOrderSecretRef.Name))
+	wasRunning := runner.Status.Phase == selfhostedv1alpha1.RunnerRunning
+	var pod *corev1.Pod
+	var err error
+	if runner.Status.PodName == "" {
+		if res, wait, werr := r.awaitWorkOrder(ctx, env, runner); wait || werr != nil {
+			return res, werr
+		}
+		if pod, err = r.createPod(ctx, env, runner); err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		if pod, err = r.existingPod(ctx, runner); err != nil {
+			return ctrl.Result{}, err
+		}
+		if pod == nil {
+			// Never re-create: the pod carried a single-use work order.
+			r.fail(runner, selfhostedv1alpha1.ReasonPodLost, fmt.Sprintf("runner pod %s disappeared before it finished", runner.Status.PodName))
 			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, err
-	}
-
-	wasRunning := runner.Status.Phase == selfhostedv1alpha1.RunnerRunning
-	pod, err := r.ensurePod(ctx, env, runner)
-	if err != nil {
-		return ctrl.Result{}, err
 	}
 	ph := derivePhase(pod)
 	runner.Status.PodName = runner.Name
@@ -162,9 +173,37 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 	}
 }
 
-// ensurePod returns the runner pod, creating it on first sight. Pods are
-// immutable, so an existing pod is used as is rather than re-applied.
-func (r *ClaudeRunnerReconciler) ensurePod(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, runner *selfhostedv1alpha1.ClaudeRunner) (*corev1.Pod, error) {
+// awaitWorkOrder confirms, before the pod exists, that the work-order Secret
+// does. The hook creates it just before the ClaudeRunner, so an absent Secret is
+// read uncached and waited for until the spawn deadline before the runner fails.
+// wait is true when the caller must stop and return res.
+func (r *ClaudeRunnerReconciler) awaitWorkOrder(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment,
+	runner *selfhostedv1alpha1.ClaudeRunner) (res ctrl.Result, wait bool, err error) {
+	name := runner.Spec.WorkOrderSecretRef.Name
+	err = r.Reader.Get(ctx, types.NamespacedName{Name: name, Namespace: runner.Namespace}, &corev1.Secret{})
+	if err == nil {
+		return ctrl.Result{}, false, nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return ctrl.Result{}, true, err
+	}
+	deadline := runner.CreationTimestamp.Add(time.Duration(spawnSeconds(env)) * time.Second)
+	if nowFunc().After(deadline) {
+		r.fail(runner, selfhostedv1alpha1.ReasonWorkOrderMissing,
+			fmt.Sprintf("work-order Secret %q not found within %d seconds", name, spawnSeconds(env)))
+		return ctrl.Result{}, true, nil
+	}
+	msg := fmt.Sprintf("waiting for work-order Secret %q", name)
+	runner.Status.Phase, runner.Status.Reason, runner.Status.Message = selfhostedv1alpha1.RunnerPending, selfhostedv1alpha1.ReasonWorkOrderMissing, msg
+	r.setReady(runner, metav1.ConditionFalse, selfhostedv1alpha1.ReasonWorkOrderMissing, msg)
+	return ctrl.Result{RequeueAfter: workOrderPollWait}, true, nil
+}
+
+// createPod creates the runner pod. It runs only while Status.PodName is
+// empty, so a pod that later disappears is never started a second time.
+// Pods are immutable, so an existing pod is used as is rather than re-applied.
+func (r *ClaudeRunnerReconciler) createPod(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment,
+	runner *selfhostedv1alpha1.ClaudeRunner) (*corev1.Pod, error) {
 	pod := &corev1.Pod{}
 	err := r.Get(ctx, client.ObjectKeyFromObject(runner), pod)
 	if err == nil {
@@ -182,6 +221,24 @@ func (r *ClaudeRunnerReconciler) ensurePod(ctx context.Context, env *selfhostedv
 	}
 	metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeCreated)
 	r.Recorder.Event(runner, corev1.EventTypeNormal, "PodCreated", "created runner pod "+pod.Name)
+	return pod, nil
+}
+
+// existingPod returns the pod recorded in Status.PodName, or nil when an
+// uncached read confirms it is gone.
+func (r *ClaudeRunnerReconciler) existingPod(ctx context.Context, runner *selfhostedv1alpha1.ClaudeRunner) (*corev1.Pod, error) {
+	pod := &corev1.Pod{}
+	key := types.NamespacedName{Name: runner.Status.PodName, Namespace: runner.Namespace}
+	err := r.Get(ctx, key, pod)
+	if apierrors.IsNotFound(err) {
+		err = r.Reader.Get(ctx, key, pod)
+	}
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 	return pod, nil
 }
 

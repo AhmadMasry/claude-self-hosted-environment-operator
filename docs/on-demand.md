@@ -52,7 +52,8 @@ ClaudeRunners are created by the hook, never by users. Phases: `Pending`, `Runni
 | `PodPending` / `PodRunning` | Pod created, or running |
 | `PodSucceeded` / `PodFailed` | Pod finished |
 | `SpawnTimeout` | Pod not Running within `onDemand.orchestrator.expectedSpawnSeconds` of creation; the pod is deleted |
-| `WorkOrderMissing` | The work-order Secret is absent |
+| `WorkOrderMissing` | The work-order Secret was not found before the pod was created; the runner stays `Pending` with this reason and fails with it once `expectedSpawnSeconds` have passed |
+| `PodLost` | The runner pod disappeared (evicted or deleted) before it finished; it is never re-created, because its work order is single-use |
 | `EnvironmentMissing` | The ClaudeEnvironment no longer exists |
 
 The JWT is mounted at `/etc/claude/environment-secret`, the same volume path as in fixed mode. The
