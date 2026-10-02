@@ -315,17 +315,6 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		Consistently(snapshot, 3*time.Second, interval).Should(Equal(first))
 	})
 
-	It("marks onDemand as unsupported in this version", func() {
-		ns := newNamespace(ctx)
-		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
-		env := fixedEnv(ns)
-		env.Spec.Fixed = nil
-		env.Spec.OnDemand = &selfhostedv1alpha1.OnDemandSpec{}
-		Expect(k8sClient.Create(ctx, env)).To(Succeed())
-		key := client.ObjectKeyFromObject(env)
-		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionDegraded), timeout, interval).Should(haveReason(metav1.ConditionTrue, selfhostedv1alpha1.ReasonUnsupportedMode))
-	})
-
 	It("marks the environment Degraded when runner pods keep failing at start", func() {
 		ns := newNamespace(ctx)
 		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())

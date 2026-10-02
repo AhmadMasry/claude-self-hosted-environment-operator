@@ -24,8 +24,10 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -58,13 +60,20 @@ type ClaudeEnvironmentReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
+	// HookImage is the operator's own image, used by the init container that
+	// installs the spawn-runner hook into orchestrator pods.
+	HookImage string
 }
 
 // +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=claudeenvironments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=claudeenvironments/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=claudeenvironments/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=secrets;configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;patch;delete
+// +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=clauderunners,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
@@ -86,6 +95,11 @@ func (r *ClaudeEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	pass := newStatusPass(env)
 	res, err := r.reconcile(ctx, env, pass)
 	pass.finish()
+
+	if !meta.IsStatusConditionTrue(before.Conditions, selfhostedv1alpha1.ConditionFleetAvailable) &&
+		meta.IsStatusConditionTrue(env.Status.Conditions, selfhostedv1alpha1.ConditionFleetAvailable) {
+		r.Recorder.Event(env, corev1.EventTypeNormal, selfhostedv1alpha1.ReasonFleetAvailable, "runner fleet is available")
+	}
 
 	if !equality.Semantic.DeepEqual(before, &env.Status) {
 		if uerr := r.Status().Update(ctx, env); uerr != nil {
@@ -120,9 +134,7 @@ func (r *ClaudeEnvironmentReconciler) reconcile(ctx context.Context, env *selfho
 	if env.Spec.OnDemand != nil {
 		env.Status.Mode = "onDemand"
 		env.Status.Fixed = nil
-		pass.set(selfhostedv1alpha1.ConditionFleetAvailable, metav1.ConditionFalse, selfhostedv1alpha1.ReasonUnsupportedMode, "")
-		pass.degrade(selfhostedv1alpha1.ReasonUnsupportedMode, "onDemand mode is not implemented in this operator version")
-		return ctrl.Result{}, nil
+		return r.reconcileOnDemand(ctx, env, pass, secret)
 	}
 	env.Status.Mode = "fixed"
 	env.Status.OnDemand = nil
@@ -156,14 +168,20 @@ func (r *ClaudeEnvironmentReconciler) resolveSecret(ctx context.Context, env *se
 // wrapper script must contain ("" when any content is fine).
 func configMapRefs(r selfhostedv1alpha1.RunnerSpec) map[string]string {
 	refs := map[string]string{}
+	add := func(name, key string) {
+		if existing, ok := refs[name]; ok && existing != "" {
+			return
+		}
+		refs[name] = key
+	}
 	if r.LifecycleHooks != nil {
-		refs[r.LifecycleHooks.Name] = ""
+		add(r.LifecycleHooks.Name, "")
 	}
 	if r.WrapperScript != nil {
-		refs[r.WrapperScript.Name] = r.WrapperScript.Key
+		add(r.WrapperScript.Name, r.WrapperScript.Key)
 	}
 	if r.HostConfig != nil {
-		refs[r.HostConfig.Name] = ""
+		add(r.HostConfig.Name, "")
 	}
 	return refs
 }
@@ -236,12 +254,12 @@ func (r *ClaudeEnvironmentReconciler) reconcileFixed(ctx context.Context, env *s
 		if err := r.deleteIfOwned(ctx, env, &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: dep.Name, Namespace: dep.Namespace}}); err != nil {
 			return ctrl.Result{}, err
 		}
-		for _, c := range dep.Status.Conditions {
-			if c.Type == appsv1.DeploymentAvailable && c.Status == corev1.ConditionTrue {
-				available = dep.Status.ObservedGeneration == dep.Generation
-			}
-		}
+		available = deploymentAvailable(dep)
 		env.Status.Fixed = &selfhostedv1alpha1.FixedFleetStatus{Replicas: dep.Status.Replicas, ReadyReplicas: dep.Status.ReadyReplicas, UpdatedReplicas: dep.Status.UpdatedReplicas}
+	}
+
+	if err := r.deleteOrchestratorObjects(ctx, env); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if available {
@@ -254,6 +272,103 @@ func (r *ClaudeEnvironmentReconciler) reconcileFixed(ctx context.Context, env *s
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: resyncPeriod}, nil
+}
+
+func (r *ClaudeEnvironmentReconciler) reconcileOnDemand(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass, secret *corev1.Secret) (ctrl.Result, error) {
+	pass.set(selfhostedv1alpha1.ConditionSecretOnRunners, metav1.ConditionFalse, selfhostedv1alpha1.ReasonOnDemandSecretOnOrchestrator,
+		"the environment secret is mounted only on the orchestrator; runners receive single-use work orders")
+
+	name := builders.FixedWorkloadName(env)
+	for _, stale := range []client.Object{
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: env.Namespace}},
+		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: env.Namespace}},
+	} {
+		if err := r.deleteIfOwned(ctx, env, stale); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	if r.HookImage == "" {
+		msg := "operator has no hook image configured; set --hook-image or OPERATOR_IMAGE on the manager"
+		pass.set(selfhostedv1alpha1.ConditionFleetAvailable, metav1.ConditionFalse, selfhostedv1alpha1.ReasonHookImageUnset, msg)
+		pass.degrade(selfhostedv1alpha1.ReasonHookImageUnset, msg)
+		r.Recorder.Event(env, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonHookImageUnset, msg)
+		return ctrl.Result{RequeueAfter: requeueAfterUserFix}, nil
+	}
+
+	if err := r.applyOrchestratorRBAC(ctx, env, pass); err != nil {
+		return ctrl.Result{}, err
+	}
+	dep := builders.OrchestratorDeployment(env, builders.OrchestratorConfigHash(env, secret, r.HookImage), r.HookImage)
+	if err := r.apply(ctx, env, dep); err != nil {
+		return ctrl.Result{}, r.applyFailed(env, pass, "Deployment", err)
+	}
+
+	if deploymentAvailable(dep) {
+		pass.set(selfhostedv1alpha1.ConditionFleetAvailable, metav1.ConditionTrue, selfhostedv1alpha1.ReasonWorkloadAvailable, "")
+	} else {
+		pass.set(selfhostedv1alpha1.ConditionFleetAvailable, metav1.ConditionFalse, selfhostedv1alpha1.ReasonOrchestratorUnavailable, "orchestrator deployment is not yet available")
+	}
+
+	counts, err := r.countRunners(ctx, env)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	counts.OrchestratorReadyReplicas = dep.Status.ReadyReplicas
+	env.Status.OnDemand = &counts
+	return ctrl.Result{RequeueAfter: resyncPeriod}, nil
+}
+
+func (r *ClaudeEnvironmentReconciler) applyOrchestratorRBAC(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) error {
+	for _, obj := range []client.Object{
+		builders.OrchestratorServiceAccount(env), builders.OrchestratorRole(env), builders.OrchestratorRoleBinding(env),
+	} {
+		if err := r.apply(ctx, env, obj); err != nil {
+			return r.applyFailed(env, pass, obj.GetObjectKind().GroupVersionKind().Kind, err)
+		}
+	}
+	return nil
+}
+
+// deploymentAvailable reports whether the Deployment's current generation is Available.
+func deploymentAvailable(dep *appsv1.Deployment) bool {
+	for _, c := range dep.Status.Conditions {
+		if c.Type == appsv1.DeploymentAvailable && c.Status == corev1.ConditionTrue {
+			return dep.Status.ObservedGeneration == dep.Generation
+		}
+	}
+	return false
+}
+
+func (r *ClaudeEnvironmentReconciler) countRunners(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment) (selfhostedv1alpha1.OnDemandStatus, error) {
+	list := &selfhostedv1alpha1.ClaudeRunnerList{}
+	if err := r.List(ctx, list, client.InNamespace(env.Namespace), client.MatchingLabels{selfhostedv1alpha1.LabelEnvironment: env.Name}); err != nil {
+		return selfhostedv1alpha1.OnDemandStatus{}, err
+	}
+	var st selfhostedv1alpha1.OnDemandStatus
+	for i := range list.Items {
+		switch list.Items[i].Status.Phase {
+		case selfhostedv1alpha1.RunnerRunning:
+			st.RunningRunners++
+		case "", selfhostedv1alpha1.RunnerPending:
+			st.PendingRunners++
+		}
+	}
+	return st, nil
+}
+
+// deleteOrchestratorObjects removes on-demand objects after a switch to fixed mode.
+func (r *ClaudeEnvironmentReconciler) deleteOrchestratorObjects(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment) error {
+	name := builders.OrchestratorName(env)
+	om := metav1.ObjectMeta{Name: name, Namespace: env.Namespace}
+	for _, obj := range []client.Object{
+		&appsv1.Deployment{ObjectMeta: om}, &rbacv1.RoleBinding{ObjectMeta: om}, &rbacv1.Role{ObjectMeta: om}, &corev1.ServiceAccount{ObjectMeta: om},
+	} {
+		if err := r.deleteIfOwned(ctx, env, obj); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // applyFailed marks the fleet unavailable when the runner workload could not be
@@ -338,6 +453,10 @@ func (r *ClaudeEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&selfhostedv1alpha1.ClaudeEnvironment{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&appsv1.StatefulSet{}).
+		Owns(&corev1.ServiceAccount{}).
+		Owns(&rbacv1.Role{}).
+		Owns(&rbacv1.RoleBinding{}).
+		Owns(&selfhostedv1alpha1.ClaudeRunner{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.environmentsReferencing(indexSecretName))).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.environmentsReferencing(indexConfigMapNames))).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, o client.Object) []reconcile.Request {

@@ -103,6 +103,7 @@ var _ = BeforeSuite(func() {
 		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
 		Recorder: k8sManager.GetEventRecorderFor("claude-selfhosted-operator-test"),
 	}
+	envReconciler.HookImage = "example.com/claude-selfhosted-operator:test"
 	Expect(envReconciler.SetupWithManager(k8sManager)).To(Succeed())
 	runnerReconciler = &ClaudeRunnerReconciler{
 		Client: k8sManager.GetClient(), Scheme: k8sManager.GetScheme(),

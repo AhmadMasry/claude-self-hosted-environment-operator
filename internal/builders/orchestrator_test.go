@@ -21,6 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/utils/ptr"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 )
@@ -202,5 +203,32 @@ func checkOrchestratorMountsAndSecurity(t *testing.T, ps corev1.PodSpec) {
 	}
 	if *ps.TerminationGracePeriodSeconds != 30 {
 		t.Fatal("orchestrator grace period should be the default 30")
+	}
+}
+
+func TestOrchestratorConfigHash(t *testing.T) {
+	env := onDemandEnv()
+	sec := &corev1.Secret{Data: map[string][]byte{"environment-secret": []byte("k1")}}
+	base := OrchestratorConfigHash(env, sec, "op:1")
+	if len(base) != 16 || OrchestratorConfigHash(env, sec, "op:1") != base {
+		t.Fatal("hash must be 16 hex chars and deterministic")
+	}
+	e2 := env.DeepCopy()
+	e2.Spec.OnDemand.Orchestrator.ExpectedSpawnSeconds = 300
+	if OrchestratorConfigHash(e2, sec, "op:1") == base {
+		t.Fatal("orchestrator settings must change the hash")
+	}
+	if OrchestratorConfigHash(env, sec, "op:2") == base {
+		t.Fatal("hook image must change the hash")
+	}
+	s2 := sec.DeepCopy()
+	s2.Data["environment-secret"] = []byte("k2")
+	if OrchestratorConfigHash(env, s2, "op:1") == base {
+		t.Fatal("secret rotation must change the hash")
+	}
+	e3 := env.DeepCopy()
+	e3.Spec.OnDemand.Orchestrator.Replicas = ptr.To[int32](3)
+	if OrchestratorConfigHash(e3, sec, "op:1") != base {
+		t.Fatal("replicas must not change the hash")
 	}
 }
