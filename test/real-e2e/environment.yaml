@@ -1,0 +1,28 @@
+# On-demand environment for the real-environment test. Rendered by
+# hack/real-session-test.sh with envsubst ($RUNNER_IMAGE, $NAMESPACE only).
+apiVersion: selfhosted.claudecode.dev/v1alpha1
+kind: ClaudeEnvironment
+metadata:
+  name: real
+spec:
+  environmentSecretRef:
+    name: real-environment-key
+    key: environment-secret
+  runner:
+    image: ${RUNNER_IMAGE}
+    settings:
+      releaseIdleSessionMinutes: 1
+      killSessionAfterMinutes: 5
+    hostConfig:
+      name: real-host-config
+    env:
+      - name: E2E_REPLY_URL
+        value: http://replysink.${NAMESPACE}.svc:8080
+    podTemplate:
+      resources:
+        requests: { cpu: 500m, memory: 1Gi }
+        limits: { cpu: "2", memory: 4Gi }
+  onDemand:
+    orchestrator:
+      expectedSpawnSeconds: 180
+    runnerTTLSecondsAfterFinished: 120

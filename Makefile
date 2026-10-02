@@ -143,6 +143,27 @@ STUB_IMG ?= example.com/claude-stub-runner:e2e
 stub-image: ## Build the e2e stub runner image.
 	$(CONTAINER_TOOL) build -t $(STUB_IMG) -f test/stubrunner/Dockerfile .
 
+# Real-environment test (docs/testing.md). The runner image bundles Anthropic's
+# binary and is never pushed.
+REPLYSINK_IMG ?= example.com/replysink:real-e2e
+REAL_RUNNER_IMG ?= example.com/claude-runner:real-e2e-test
+CLAUDE_CODE_VERSION ?= $(shell curl -fsSL https://downloads.claude.ai/claude-code-releases/stable)
+
+.PHONY: replysink-image
+replysink-image: ## Build the reply sink used by the real-environment test.
+	$(CONTAINER_TOOL) build -t $(REPLYSINK_IMG) -f test/replysink/Dockerfile .
+
+.PHONY: real-runner-image
+real-runner-image: ## Build the real-environment test runner image (never pushed).
+	$(CONTAINER_TOOL) build -t example.com/claude-runner:real-e2e --build-arg CLAUDE_CODE_VERSION=$(CLAUDE_CODE_VERSION) examples/runner-image
+	$(CONTAINER_TOOL) build -t $(REAL_RUNNER_IMG) --build-arg BASE=example.com/claude-runner:real-e2e -f test/real-e2e/runner.Dockerfile .
+
+.PHONY: real-session-test
+real-session-test: setup-test-e2e docker-build replysink-image real-runner-image ## Deploy to the kind cluster and run hack/real-session-test.sh.
+	$(KIND) load docker-image $(IMG) $(REPLYSINK_IMG) $(REAL_RUNNER_IMG) --name $(KIND_CLUSTER)
+	$(MAKE) deploy IMG=$(IMG)
+	RUNNER_IMAGE=$(REAL_RUNNER_IMG) hack/real-session-test.sh
+
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}

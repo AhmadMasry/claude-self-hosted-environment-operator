@@ -1,0 +1,84 @@
+name: real-e2e
+
+# Manual real-environment test (docs/testing.md). Level 1 needs the
+# CLAUDE_ENVIRONMENT_KEY and CLAUDE_ENVIRONMENT_ID secrets; level 2 also needs
+# CLAUDE_CODE_OAUTH_REFRESH_TOKEN and CLAUDE_CODE_OAUTH_SCOPES and is skipped
+# without them. The runner image is built here and never pushed.
+on:
+  workflow_dispatch:
+    inputs:
+      test_repo:
+        description: Repository the level 2 session checks out (owner/name, cloned anonymously); empty means this repository
+        required: false
+        default: ""
+      ref:
+        description: Git ref for the session; empty means the branch checked out (this run's branch, or test_repo's default branch)
+        required: false
+        default: ""
+      keep_cluster:
+        description: Keep the kind cluster after the run (self-hosted runners only)
+        required: false
+        default: "false"
+
+permissions: {}
+
+jobs:
+  real:
+    name: Real environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      KIND_CLUSTER: claude-selfhosted-operator-real-e2e
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      - name: Guard secrets
+        env:
+          CLAUDE_ENVIRONMENT_KEY: ${{ secrets.CLAUDE_ENVIRONMENT_KEY }}
+          CLAUDE_ENVIRONMENT_ID: ${{ secrets.CLAUDE_ENVIRONMENT_ID }}
+        run: |
+          [ -n "$CLAUDE_ENVIRONMENT_KEY" ] || { echo "::error::Secret CLAUDE_ENVIRONMENT_KEY is not set"; exit 1; }
+          [ -n "$CLAUDE_ENVIRONMENT_ID" ] || { echo "::error::Secret CLAUDE_ENVIRONMENT_ID is not set"; exit 1; }
+
+      - name: Install the latest version of kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-"$(go env GOARCH)"
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Install the Claude Code CLI
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run the real-environment test
+        env:
+          CLAUDE_ENVIRONMENT_KEY: ${{ secrets.CLAUDE_ENVIRONMENT_KEY }}
+          CLAUDE_ENVIRONMENT_ID: ${{ secrets.CLAUDE_ENVIRONMENT_ID }}
+          CLAUDE_CODE_OAUTH_REFRESH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_REFRESH_TOKEN }}
+          CLAUDE_CODE_OAUTH_SCOPES: ${{ secrets.CLAUDE_CODE_OAUTH_SCOPES }}
+          TEST_REPO: ${{ inputs.test_repo }}
+          TEST_REF: ${{ inputs.ref }}
+        run: make real-session-test IMG=example.com/claude-selfhosted-operator:real-e2e
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl get claudeenvironments,clauderunners,pods -A -o wide || true
+          kubectl logs -n claude-selfhosted-operator-system deployment/claude-selfhosted-operator-controller-manager --tail=300 || true
+          kubectl logs -n claude-real-e2e -l selfhosted.claudecode.dev/environment=real --all-containers --tail=200 || true
+          kubectl logs -n claude-real-e2e deployment/replysink --tail=100 || true
+
+      - name: Teardown
+        if: always() && inputs.keep_cluster != 'true'
+        run: make cleanup-test-e2e

@@ -1,0 +1,54 @@
+# Reply sink for the real-environment test: runner Stop hooks POST each
+# session's last reply here and hack/real-session-test.sh reads it back.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: replysink
+  labels:
+    app.kubernetes.io/name: replysink
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: replysink
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: replysink
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: replysink
+          image: example.com/replysink:real-e2e
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 50m, memory: 64Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: replysink
+  labels:
+    app.kubernetes.io/name: replysink
+spec:
+  selector:
+    app.kubernetes.io/name: replysink
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
