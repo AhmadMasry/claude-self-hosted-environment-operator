@@ -164,9 +164,10 @@ the order ID falls out of naming the ClaudeRunner after it.
 
 ## 5. API
 
-Group `selfhosted.claudecode.dev`, version `v1alpha1`. The group is a
-placeholder until the project owns a domain; it is a one-line change
-before the first release. Both kinds are namespaced. The manager runs
+Group `selfhosted.claudecode.dev`, version `v1alpha1`. The group must be
+confirmed before the first tagged release: changing it afterwards is a
+breaking migration for users, since a new group is a new CRD. Before then
+it is a one-line change. Both kinds are namespaced. The manager runs
 cluster-wide and watches all namespaces unless `--watch-namespaces` is
 set.
 
@@ -554,8 +555,7 @@ compatible via collector scraping.
 
 ## 9. Repository layout
 
-Kubebuilder v4 layout. Module path: `github.com/OWNER/claude-self-hosted-environment-operator`
-(OWNER to be set before `kubebuilder init`).
+Kubebuilder v4 layout. Module path: `github.com/AhmadMasry/claude-self-hosted-environment-operator`.
 
 ```
 api/v1alpha1/                 types, deepcopy, CEL markers, docs
@@ -685,8 +685,8 @@ the product's, `TROUBLESHOOTING.md` keyed on conditions and reasons.
 
 ## 13. Open items
 
-- `OWNER` in the module path and the API group domain. Both are
-  placeholders; set before `kubebuilder init`.
+- Confirm the API group domain `selfhosted.claudecode.dev` with Anthropic
+  before v1.0.0; it is cheap to change until then.
 - Whether to add a validating webhook in v1 for the cross-field checks
   CEL cannot express (grace period vs computed budget). Decision: no;
   Degraded condition instead.
