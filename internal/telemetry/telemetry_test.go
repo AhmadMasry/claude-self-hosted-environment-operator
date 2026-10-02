@@ -20,12 +20,16 @@ import (
 	"context"
 	"testing"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestInitWithoutEndpointIsNoop(t *testing.T) {
+	// Init("") leaves the global provider alone, so start from a known no-op one.
+	otel.SetTracerProvider(noop.NewTracerProvider())
 	shutdown, err := Init(context.Background(), "", "test", 1)
 	if err != nil {
 		t.Fatal(err)
