@@ -226,6 +226,8 @@ replacements:
   #         index: 1
   #         create: true
 
+  # The two +kubebuilder:scaffold markers below stay at column 0: the kubebuilder CLI
+  # injects the conversion webhook's CA-injection targets at them, so do not indent or remove them.
   # - source: # Uncomment the following block if you have a ConversionWebhook (--conversion)
   #     kind: Certificate
   #     group: cert-manager.io

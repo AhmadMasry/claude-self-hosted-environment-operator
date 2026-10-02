@@ -52,7 +52,7 @@ func fixedFleetSpecs() {
 				"claude-env-secret", "--from-literal=environment-secret=ccenvkey_e2e"))
 			Expect(err).NotTo(HaveOccurred())
 			By("creating the hooks and wrapper ConfigMaps the environment mounts")
-			_, err = utils.Run(exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/fixed-fleet-configmaps.yaml"))
+			_, err = utils.Run(exec.Command("kubectl", "apply", "-f", testdataPath("fixed-fleet-configmaps.yaml")))
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -61,7 +61,7 @@ func fixedFleetSpecs() {
 		})
 
 		It("becomes Ready with Restricted-compliant runner pods", func() {
-			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/fixed-fleet-stub.yaml"))
+			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", testdataPath("fixed-fleet-stub.yaml")))
 			Expect(err).NotTo(HaveOccurred())
 
 			Eventually(func(g Gomega) {
@@ -83,14 +83,17 @@ func fixedFleetSpecs() {
 			Expect(out).To(And(ContainSubstring(`"--hooks-dir","/etc/claude/hooks"`),
 				ContainSubstring(`"--exec-path","/etc/claude/wrapper/wrap.sh"`)))
 
-			out, err = utils.Run(exec.Command("kubectl", "-n", e2eNamespace, "get", "pods",
-				"-l", "selfhosted.claudecode.dev/environment=e2e", "-o", "jsonpath={.items[*].status.phase}"))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(strings.Fields(out)).To(Equal([]string{"Running", "Running"}))
+			Eventually(func(g Gomega) {
+				out, err := utils.Run(exec.Command("kubectl", "-n", e2eNamespace, "get", "pods",
+					"-l", "selfhosted.claudecode.dev/environment=e2e", "-o", "jsonpath={.items[*].status.phase}"))
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.Fields(out)).To(Equal([]string{"Running", "Running"}))
+			}, time.Minute, 2*time.Second).Should(Succeed())
 
 			By("checking no pod was rejected by the Pod Security admission controller")
-			out, _ = utils.Run(exec.Command("kubectl", "-n", e2eNamespace, "get", "events",
+			out, err = utils.Run(exec.Command("kubectl", "-n", e2eNamespace, "get", "events",
 				"--field-selector", "reason=FailedCreate", "-o", "name"))
+			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(out)).To(BeEmpty(), fmt.Sprintf("FailedCreate events: %s", out))
 		})
 

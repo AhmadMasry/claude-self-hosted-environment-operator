@@ -18,6 +18,7 @@ requires `workOrderSecretRef.name` to be `<orderID>-work-order`, and the control
 ClaudeRunner controlled by the on-demand ClaudeEnvironment its `environmentRef` names (otherwise it fails
 with `EnvironmentMismatch`). A ValidatingAdmissionPolicy that confines the orchestrator's Secret writes to
 work-order Secrets is a planned follow-up (Plan 3).
+The operator watches Secrets and ConfigMaps cluster-wide unless the manager runs with `--watch-namespaces`.
 The condition `SecretOnRunners` is `False` with reason `OnDemandSecretOnOrchestrator`: the environment
 secret is mounted on the orchestrator only; runner pods get just their work-order JWT.
 

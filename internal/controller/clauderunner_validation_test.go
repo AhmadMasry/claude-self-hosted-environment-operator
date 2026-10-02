@@ -21,6 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
@@ -74,9 +75,12 @@ var _ = Describe("ClaudeRunner validation", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: "bad", Namespace: ns},
 			Spec: selfhostedv1alpha1.ClaudeRunnerSpec{
 				EnvironmentRef:     selfhostedv1alpha1.LocalObjectRef{Name: validationEnv},
-				WorkOrderSecretRef: selfhostedv1alpha1.LocalObjectRef{Name: "x"},
+				WorkOrderSecretRef: selfhostedv1alpha1.LocalObjectRef{Name: "-work-order"},
 			},
 		}
-		Expect(k8sClient.Create(ctx, r)).NotTo(Succeed())
+		err := k8sClient.Create(ctx, r)
+		Expect(err).To(HaveOccurred())
+		Expect(apierrors.IsInvalid(err)).To(BeTrue())
+		Expect(err.Error()).To(ContainSubstring("spec.orderID"))
 	})
 })

@@ -75,6 +75,13 @@ The list shows Mode, Ready, Replicas and Age. Conditions on `.status.conditions`
 | `Degraded` | Something needs attention, for example `ConfigMapMissing`, `GracePeriodTooShort`, `RunnerFailedStart`, `HookImageUnset` |
 | `SecretOnRunners` | The Secret is mounted on runner pods; `False/OnDemandSecretOnOrchestrator` in on-demand mode |
 
+## Hardening notes
+
+`lockToAccount` accepts an email address. That value is stored in the ClaudeEnvironment object and passed to the
+runner pod as an argument, so treat the object as containing personal data and limit who can read it. The operator
+watches Secrets and ConfigMaps cluster-wide unless the manager runs with `--watch-namespaces`.
+See [hardening](docs/hardening.md) for the rest.
+
 ## Development
 
     make test        # unit tests (envtest)

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -33,6 +34,23 @@ import (
 
 // stubImage is the stub runner image used in place of the real runner.
 const stubImage = "example.com/claude-stub-runner:e2e"
+
+// testdataPath returns the absolute path of a file under test/e2e/testdata.
+func testdataPath(name string) string {
+	dir, err := utils.GetProjectDir()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	return filepath.Join(dir, "test", "e2e", "testdata", name)
+}
+
+var _ = Describe("testdata", func() {
+	It("uses the suite's stub image literal", func() {
+		for _, f := range []string{"fixed-fleet-stub.yaml", "on-demand-stub.yaml"} {
+			b, err := os.ReadFile(testdataPath(f))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(b)).To(ContainSubstring("image: "+stubImage), f)
+		}
+	})
+})
 
 var (
 	// managerImage is the manager image to be built and loaded for testing.

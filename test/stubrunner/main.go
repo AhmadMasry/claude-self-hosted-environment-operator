@@ -142,65 +142,96 @@ func runHooks(ctx context.Context, hook string) {
 	}
 }
 
-func main() {
-	args := os.Args[1:]
-	orchestrator := len(os.Args) > 2 && os.Args[1] == "self-hosted-runner" && os.Args[2] == "orchestrator"
-	var hook string
-	var err error
-	if orchestrator {
-		hook, err = checkOrchestratorMounts(args)
-	} else {
-		err = checkMounts(args)
-	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	port := argValue(args, "--health-port", "8080")
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+// runnerHealthz serves the runner's /healthz body.
+func runnerHealthz() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if orchestrator {
-			_, _ = fmt.Fprint(w, orchestratorBody)
-			return
-		}
 		_, _ = fmt.Fprint(w, `{"status":"ok","runner_id":"ccrunner_stub","active_sessions":0,`+
 			`"last_poll_at":null,"last_poll_age_ms":null}`)
-	})
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
-		if orchestrator {
-			_, _ = fmt.Fprintln(w, "claude_code_self_hosted_orchestrator_connected 1")
-			return
-		}
-		_, _ = fmt.Fprintln(w, "claude_code_self_hosted_runner_capacity 1")
-		_, _ = fmt.Fprintln(w, "claude_code_self_hosted_runner_active_sessions 0")
-	})
-	srv := &http.Server{Addr: ":" + port, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	}
+}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
+// orchestratorHealthz serves the orchestrator's /healthz body.
+func orchestratorHealthz() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, orchestratorBody)
+	}
+}
+
+// startServer serves healthz and metrics on port in the background and
+// returns the server so the caller can shut it down.
+func startServer(port string, healthz, metrics http.HandlerFunc) *http.Server {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", healthz)
+	mux.HandleFunc("/metrics", metrics)
+	srv := &http.Server{Addr: ":" + port, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
 	}()
-	if orchestrator {
-		fmt.Println("stub-orchestrator: listening on", port, "args:", args)
-		go runHooks(ctx, hook)
-	} else {
-		fmt.Println("[self-hosted-runner] stub listening on", port, "args:", args)
-		if n, err := strconv.Atoi(os.Getenv("STUB_EXIT_AFTER_SECONDS")); err == nil && n > 0 {
-			select {
-			case <-ctx.Done():
-			case <-time.After(time.Duration(n) * time.Second):
-				fmt.Println("stub-runner: session finished, exiting 0")
-			}
-			stop()
-		}
-	}
-	<-ctx.Done()
+	return srv
+}
+
+func stopServer(srv *http.Server) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+}
+
+// runRunner stands in for the runner and returns the process exit code.
+func runRunner(args []string) int {
+	if err := checkMounts(args); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+	port := argValue(args, "--health-port", "8080")
+	srv := startServer(port, runnerHealthz(), func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintln(w, "claude_code_self_hosted_runner_capacity 1")
+		_, _ = fmt.Fprintln(w, "claude_code_self_hosted_runner_active_sessions 0")
+	})
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	fmt.Println("[self-hosted-runner] stub listening on", port, "args:", args)
+	if n, err := strconv.Atoi(os.Getenv("STUB_EXIT_AFTER_SECONDS")); err == nil && n > 0 {
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Duration(n) * time.Second):
+			fmt.Println("stub-runner: session finished, exiting 0")
+		}
+		stop()
+	}
+	<-ctx.Done()
+	stopServer(srv)
+	return 0
+}
+
+// runOrchestrator stands in for the orchestrator and returns the process exit code.
+func runOrchestrator(args []string) int {
+	hook, err := checkOrchestratorMounts(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+	port := argValue(args, "--health-port", "8080")
+	srv := startServer(port, orchestratorHealthz(), func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintln(w, "claude_code_self_hosted_orchestrator_connected 1")
+	})
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	fmt.Println("stub-orchestrator: listening on", port, "args:", args)
+	go runHooks(ctx, hook)
+	<-ctx.Done()
+	stopServer(srv)
+	return 0
+}
+
+func main() {
+	args := os.Args[1:]
+	if len(os.Args) > 2 && os.Args[1] == "self-hosted-runner" && os.Args[2] == "orchestrator" {
+		os.Exit(runOrchestrator(args))
+	}
+	os.Exit(runRunner(args))
 }

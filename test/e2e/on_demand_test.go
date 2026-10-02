@@ -47,7 +47,7 @@ func onDemandSpecs() {
 			Expect(err).NotTo(HaveOccurred())
 			_, err = kubectlOD("create", "secret", "generic", "claude-env-secret", "--from-literal=environment-secret=ccenvkey_e2e")
 			Expect(err).NotTo(HaveOccurred())
-			_, err = utils.Run(exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/on-demand-stub.yaml"))
+			_, err = utils.Run(exec.Command("kubectl", "apply", "-f", testdataPath("on-demand-stub.yaml")))
 			Expect(err).NotTo(HaveOccurred())
 		})
 		AfterAll(func() {
@@ -63,7 +63,8 @@ func onDemandSpecs() {
 			out, err := kubectlOD("get", "deploy", "e2e-od-orchestrator", "-o", "jsonpath={.spec.template.spec.initContainers[0].image}")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(out)).To(Equal(managerImage), "hook image must be the operator image via OPERATOR_IMAGE")
-			out, _ = kubectlOD("get", "events", "--field-selector", "reason=FailedCreate", "-o", "name")
+			out, err = kubectlOD("get", "events", "--field-selector", "reason=FailedCreate", "-o", "name")
+			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(out)).To(BeEmpty())
 		})
 
@@ -94,6 +95,7 @@ func onDemandSpecs() {
 				for _, res := range []string{"clauderunner/e2e-order-1", "pod/e2e-order-1", "secret/e2e-order-1-work-order"} {
 					_, err := kubectlOD("get", res)
 					g.Expect(err).To(HaveOccurred(), res+" should be garbage-collected after the TTL")
+					g.Expect(err.Error()).To(Or(ContainSubstring("NotFound"), ContainSubstring("not found")), res)
 				}
 			}, time.Minute, 3*time.Second).Should(Succeed())
 

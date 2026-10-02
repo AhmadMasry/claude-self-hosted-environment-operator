@@ -22,6 +22,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestInitWithoutEndpointIsNoop(t *testing.T) {
@@ -32,7 +33,12 @@ func TestInitWithoutEndpointIsNoop(t *testing.T) {
 	if err := shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if tp := TraceparentFrom(context.Background()); tp != "" {
+	ctx, span := StartSpan(context.Background(), "x")
+	defer span.End()
+	if span.SpanContext().IsValid() || span.IsRecording() {
+		t.Fatal("no endpoint must yield a non-recording span without a valid span context")
+	}
+	if tp := TraceparentFrom(ctx); tp != "" {
 		t.Fatalf("no span means no traceparent, got %q", tp)
 	}
 }
@@ -62,7 +68,7 @@ func TestTraceparentRoundTrip(t *testing.T) {
 	if spans[1].Parent.SpanID() != spans[0].SpanContext.SpanID() {
 		t.Fatal("controller span must be a child of the hook span")
 	}
-	if ContextWithTraceparent(context.Background(), "garbage") == nil {
-		t.Fatal("invalid traceparent must still return a context")
+	if trace.SpanContextFromContext(ContextWithTraceparent(context.Background(), "garbage")).IsValid() {
+		t.Fatal("invalid traceparent must not yield a valid span context")
 	}
 }

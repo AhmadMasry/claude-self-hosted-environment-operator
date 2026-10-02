@@ -47,10 +47,15 @@ echo "------------------------------------"
 echo "Installing development tools..."
 echo "------------------------------------"
 
+# Pinned tool versions
+KIND_VERSION="v0.33.0"
+KUBEBUILDER_VERSION="v4.16.0"
+KUBECTL_VERSION="v1.37.1"
+
 # Install kind
 if ! command -v kind &> /dev/null; then
   echo "Installing kind..."
-  curl -Lo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/latest/kind-linux-${ARCH}"
+  curl -Lo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-${ARCH}"
   chmod +x /usr/local/bin/kind
   echo "kind installed successfully"
 fi
@@ -67,7 +72,7 @@ fi
 # Install kubebuilder
 if ! command -v kubebuilder &> /dev/null; then
   echo "Installing kubebuilder..."
-  curl -Lo /usr/local/bin/kubebuilder "https://go.kubebuilder.io/dl/latest/linux/${ARCH}"
+  curl -Lo /usr/local/bin/kubebuilder "https://github.com/kubernetes-sigs/kubebuilder/releases/download/${KUBEBUILDER_VERSION}/kubebuilder_linux_${ARCH}"
   chmod +x /usr/local/bin/kubebuilder
   echo "kubebuilder installed successfully"
 fi
@@ -84,7 +89,6 @@ fi
 # Install kubectl
 if ! command -v kubectl &> /dev/null; then
   echo "Installing kubectl..."
-  KUBECTL_VERSION=$(curl -Ls https://dl.k8s.io/release/stable.txt)
   curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
   chmod +x /usr/local/bin/kubectl
   echo "kubectl installed successfully"

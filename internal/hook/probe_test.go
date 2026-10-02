@@ -20,21 +20,29 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 )
 
 func TestProbeConnected(t *testing.T) {
+	var mu sync.Mutex
 	body := `{"status":"ok","connected":false}`
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+	setBody := func(b string) { mu.Lock(); body = b; mu.Unlock() }
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		b := body
+		mu.Unlock()
+		_, _ = w.Write([]byte(b))
+	}))
 	defer srv.Close()
 	if ok, err := ProbeConnected(context.Background(), srv.URL); err != nil || ok {
 		t.Fatalf("connected=false must probe false: %v %v", ok, err)
 	}
-	body = `{"status":"ok","connected":true,"queue_counts":{"pending":0}}`
+	setBody(`{"status":"ok","connected":true,"queue_counts":{"pending":0}}`)
 	if ok, err := ProbeConnected(context.Background(), srv.URL); err != nil || !ok {
 		t.Fatalf("connected=true must probe true: %v %v", ok, err)
 	}
-	body = `not json`
+	setBody(`not json`)
 	if _, err := ProbeConnected(context.Background(), srv.URL); err == nil {
 		t.Fatal("unparseable body must error")
 	}

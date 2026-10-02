@@ -1,3 +1,19 @@
+/*
+Copyright 2026 Ahmad Masry.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package controller
 
 import (
@@ -194,7 +210,11 @@ var _ = Describe("ClaudeRunner controller", func() {
 		r := ownedBy(runnerObj(ns, "order-9"), env)
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())
 		key := client.ObjectKeyFromObject(r)
-		time.Sleep(2 * time.Second)
+		Eventually(func() string {
+			got := &selfhostedv1alpha1.ClaudeRunner{}
+			_ = k8sClient.Get(ctx, key, got)
+			return string(got.Status.Phase) + "/" + got.Status.Reason
+		}, timeout, interval).Should(Equal(string(selfhostedv1alpha1.RunnerPending) + "/" + selfhostedv1alpha1.ReasonWorkOrderMissing))
 		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-9"))).To(Succeed())
 
 		Eventually(func() error { return k8sClient.Get(ctx, key, &corev1.Pod{}) }, timeout, interval).Should(Succeed())
