@@ -74,7 +74,7 @@ func fatalLine(msg string) string {
 	for _, line := range slices.Backward(strings.Split(msg, "\n")) {
 		l := strings.TrimSpace(line)
 		if strings.Contains(l, "[runner:fatal]") || strings.HasPrefix(l, "error:") {
-			return truncate(redact(l), failedStartMessageLimit)
+			return truncate(redact(l))
 		}
 	}
 	return failedStartNoMessageHint
@@ -85,7 +85,8 @@ func redact(s string) string {
 	return secretPattern.ReplaceAllString(s, redactedMarker)
 }
 
-func truncate(s string, n int) string {
+func truncate(s string) string {
+	n := failedStartMessageLimit
 	if len(s) <= n {
 		return s
 	}

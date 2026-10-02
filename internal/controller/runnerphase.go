@@ -61,7 +61,7 @@ func derivePhase(pod *corev1.Pod) phaseResult {
 		res.FinishedAt = terminatedAt(cs)
 		if cs != nil && cs.State.Terminated != nil {
 			t := cs.State.Terminated
-			res.Message = truncate(redact(fmt.Sprintf("exit code %d (%s): %s", t.ExitCode, t.Reason, fatalLine(t.Message))), failedStartMessageLimit)
+			res.Message = truncate(redact(fmt.Sprintf("exit code %d (%s): %s", t.ExitCode, t.Reason, fatalLine(t.Message))))
 		} else {
 			res.Message = "pod failed: " + pod.Status.Reason
 		}
@@ -73,11 +73,11 @@ func derivePhase(pod *corev1.Pod) phaseResult {
 		res.Phase, res.Reason, res.StartedAt = selfhostedv1alpha1.RunnerPending, selfhostedv1alpha1.ReasonPodPending, nil
 		res.Message = "pod is pending"
 		if cs != nil && cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
-			res.Reason, res.Message = cs.State.Waiting.Reason, truncate(redact(cs.State.Waiting.Message), failedStartMessageLimit)
+			res.Reason, res.Message = cs.State.Waiting.Reason, truncate(redact(cs.State.Waiting.Message))
 		}
 		for _, c := range pod.Status.Conditions {
 			if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse && c.Reason != "" {
-				res.Reason, res.Message = c.Reason, truncate(redact(c.Message), failedStartMessageLimit)
+				res.Reason, res.Message = c.Reason, truncate(redact(c.Message))
 			}
 		}
 	}
