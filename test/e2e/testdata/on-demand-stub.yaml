@@ -1,0 +1,26 @@
+apiVersion: selfhosted.claudecode.dev/v1alpha1
+kind: ClaudeEnvironment
+metadata:
+  name: e2e-od
+  namespace: claude-e2e-od
+spec:
+  environmentSecretRef:
+    name: claude-env-secret
+  runner:
+    image: example.com/claude-stub-runner:e2e
+    capacity: 1
+    env:
+      - name: STUB_EXIT_AFTER_SECONDS
+        value: "90"          # long enough for the spec to observe Running after Ready
+    podTemplate:
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+  onDemand:
+    orchestrator:
+      replicas: 1
+      expectedSpawnSeconds: 90
+      hookTimeoutSeconds: 60
+      podTemplate:
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
+    runnerTTLSecondsAfterFinished: 15

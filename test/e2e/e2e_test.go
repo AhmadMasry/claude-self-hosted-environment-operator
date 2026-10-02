@@ -282,6 +282,7 @@ var _ = Describe("Manager", Ordered, func() {
 	})
 
 	fixedFleetSpecs()
+	onDemandSpecs()
 })
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.
