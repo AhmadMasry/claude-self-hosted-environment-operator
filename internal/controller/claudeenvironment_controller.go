@@ -459,16 +459,26 @@ func (r *ClaudeEnvironmentReconciler) deleteIfOwned(ctx context.Context, env *se
 }
 
 // CacheByObject restricts the manager's Pod informer to pods carrying an
-// operator role label, so the Pod watch does not cache every pod in the
-// cluster.
+// operator role label, and its ServiceAccount, Role and RoleBinding informers
+// to objects carrying the operator's part-of label, so these watches do not
+// cache every such object in the cluster. Secrets and ConfigMaps stay
+// unfiltered because users name them.
 func CacheByObject() (map[client.Object]cache.ByObject, error) {
 	role, err := labels.NewRequirement(selfhostedv1alpha1.LabelRole, selection.In,
 		[]string{selfhostedv1alpha1.RoleRunner, selfhostedv1alpha1.RoleOrchestrator})
 	if err != nil {
 		return nil, err
 	}
+	partOf, err := labels.NewRequirement(selfhostedv1alpha1.LabelPartOf, selection.Equals, []string{selfhostedv1alpha1.PartOfValue})
+	if err != nil {
+		return nil, err
+	}
+	operatorOwned := cache.ByObject{Label: labels.NewSelector().Add(*partOf)}
 	return map[client.Object]cache.ByObject{
-		&corev1.Pod{}: {Label: labels.NewSelector().Add(*role)},
+		&corev1.Pod{}:            {Label: labels.NewSelector().Add(*role)},
+		&corev1.ServiceAccount{}: operatorOwned,
+		&rbacv1.Role{}:           operatorOwned,
+		&rbacv1.RoleBinding{}:    operatorOwned,
 	}, nil
 }
 
