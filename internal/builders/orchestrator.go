@@ -82,7 +82,8 @@ func OrchestratorRole(env *selfhostedv1alpha1.ClaudeEnvironment) *rbacv1.Role {
 		TypeMeta:   metav1.TypeMeta{APIVersion: "rbac.authorization.k8s.io/v1", Kind: "Role"},
 		ObjectMeta: orchestratorMeta(env),
 		Rules: []rbacv1.PolicyRule{
-			{APIGroups: []string{selfhostedv1alpha1.GroupVersion.Group}, Resources: []string{"claudeenvironments"}, Verbs: []string{"get"}},
+			{APIGroups: []string{selfhostedv1alpha1.GroupVersion.Group}, Resources: []string{"claudeenvironments"}, Verbs: []string{"get"},
+				ResourceNames: []string{env.Name}},
 			{APIGroups: []string{selfhostedv1alpha1.GroupVersion.Group}, Resources: []string{"clauderunners"}, Verbs: runnerVerbs},
 			{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"create", "patch", "delete"}},
 		},

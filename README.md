@@ -10,6 +10,7 @@ API: `selfhosted.claudecode.dev/v1alpha1` (provisional until v1.0.0).
 **Modes.** Fixed-fleet mode (`spec.fixed.replicas`) runs a standing fleet. On-demand mode
 (`spec.onDemand`) runs an orchestrator that spawns one runner pod per session; see
 [`examples/on-demand.yaml`](examples/on-demand.yaml) and [`docs/on-demand.md`](docs/on-demand.md).
+Give each on-demand environment its own namespace: its orchestrator can write any Secret in that namespace.
 
 ## Quickstart
 

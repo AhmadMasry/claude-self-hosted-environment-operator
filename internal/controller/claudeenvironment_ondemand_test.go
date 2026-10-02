@@ -101,8 +101,7 @@ var _ = Describe("ClaudeEnvironment on-demand mode", func() {
 		// derives them itself: c1 stays Pending, c2 and c3 run, c4 finishes.
 		for _, name := range []string{"c1", "c2", "c3", "c4"} {
 			Expect(k8sClient.Create(ctx, workOrderSecret(ns, name))).To(Succeed())
-			r := runnerObj(ns, name)
-			r.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(env, selfhostedv1alpha1.GroupVersion.WithKind("ClaudeEnvironment"))}
+			r := ownedBy(runnerObj(ns, name), env)
 			Expect(k8sClient.Create(ctx, r)).To(Succeed())
 			Eventually(func() error { return k8sClient.Get(ctx, client.ObjectKeyFromObject(r), &corev1.Pod{}) }, timeout, interval).Should(Succeed())
 		}

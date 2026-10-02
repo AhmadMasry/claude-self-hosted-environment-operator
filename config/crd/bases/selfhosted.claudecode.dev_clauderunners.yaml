@@ -103,6 +103,8 @@ spec:
             x-kubernetes-validations:
             - message: spec is immutable
               rule: self == oldSelf
+            - message: workOrderSecretRef.name must be <orderID>-work-order
+              rule: self.workOrderSecretRef.name == self.orderID + '-work-order'
           status:
             description: ClaudeRunnerStatus is derived from the runner pod.
             properties:

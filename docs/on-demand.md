@@ -7,9 +7,17 @@ secret, and each incoming session spawns one runner pod with a single-use work o
 ## What the operator creates
 
 For an environment named `<env>` it creates a ServiceAccount, Role, RoleBinding and Deployment, all named
-`<env>-orchestrator`. The Role grants `get` on `claudeenvironments`, `create, get` on `clauderunners`
+`<env>-orchestrator`. The Role grants `get` on its own `claudeenvironments` object, `create, get` on `clauderunners`
 (plus `list` only when `maxConcurrentRunners` is above 0), and `create, patch, delete` on `secrets`.
 Because the manager can only grant what it holds, the manager itself needs `create, patch, delete` on Secrets.
+
+Give each on-demand environment its own namespace. The orchestrator ServiceAccount can create, patch and
+delete any Secret in its namespace, so anything else in that namespace, another environment's secret
+included, is within its reach. The operator narrows what a ClaudeRunner can do with that reach: the API
+requires `workOrderSecretRef.name` to be `<orderID>-work-order`, and the controller starts a pod only for a
+ClaudeRunner controlled by the on-demand ClaudeEnvironment its `environmentRef` names (otherwise it fails
+with `EnvironmentMismatch`). A ValidatingAdmissionPolicy that confines the orchestrator's Secret writes to
+work-order Secrets is a planned follow-up (Plan 3).
 The condition `SecretOnRunners` is `False` with reason `OnDemandSecretOnOrchestrator`: the environment
 secret is mounted on the orchestrator only; runner pods get just their work-order JWT.
 
@@ -59,6 +67,7 @@ ClaudeRunners are created by the hook, never by users. Phases: `Pending`, `Runni
 | `WorkOrderMissing` | The work-order Secret was not found before the pod was created; the runner stays `Pending` with this reason and fails with it once `expectedSpawnSeconds` have passed |
 | `PodLost` | The runner pod disappeared (evicted or deleted) before it finished; it is never re-created, because its work order is single-use |
 | `EnvironmentMissing` | The ClaudeEnvironment no longer exists |
+| `EnvironmentMismatch` | The ClaudeRunner is not controlled by the on-demand ClaudeEnvironment its `environmentRef` names; no pod is created |
 
 The JWT is mounted at `/etc/claude/environment-secret`, the same volume path as in fixed mode. The
 finalizer `selfhosted.claudecode.dev/runner-pod` makes deletion remove the pod first.

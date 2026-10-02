@@ -45,6 +45,7 @@ func (p RunnerPhase) IsTerminal() bool {
 
 // ClaudeRunnerSpec is written once by the spawn-runner hook and never changes.
 // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec is immutable"
+// +kubebuilder:validation:XValidation:rule="self.workOrderSecretRef.name == self.orderID + '-work-order'",message="workOrderSecretRef.name must be <orderID>-work-order"
 type ClaudeRunnerSpec struct {
 	EnvironmentRef LocalObjectRef `json:"environmentRef"`
 	// +kubebuilder:validation:MinLength=1

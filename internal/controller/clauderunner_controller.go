@@ -116,6 +116,10 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 	var pod *corev1.Pod
 	var err error
 	if runner.Status.PodName == "" {
+		if msg := ownerMismatch(runner, env); msg != "" {
+			r.fail(runner, selfhostedv1alpha1.ReasonEnvironmentMismatch, msg)
+			return ctrl.Result{}, nil
+		}
 		if res, wait, werr := r.awaitWorkOrder(ctx, env, runner); wait || werr != nil {
 			return res, werr
 		}
@@ -171,6 +175,21 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		r.Recorder.Event(runner, corev1.EventTypeNormal, ph.Reason, "runner finished: "+string(ph.Phase))
 		return r.expire(ctx, runner)
 	}
+}
+
+// ownerMismatch returns why the runner may not start a pod from env, or "".
+// The orchestrator identity can create ClaudeRunners naming any environment in
+// its namespace; only a runner controlled by the on-demand environment it
+// names gets a pod.
+func ownerMismatch(runner *selfhostedv1alpha1.ClaudeRunner, env *selfhostedv1alpha1.ClaudeEnvironment) string {
+	owner := metav1.GetControllerOf(runner)
+	if owner == nil || owner.APIVersion != selfhostedv1alpha1.GroupVersion.String() || owner.Kind != "ClaudeEnvironment" || owner.Name != env.Name {
+		return fmt.Sprintf("ClaudeRunner is not controlled by ClaudeEnvironment %q named in spec.environmentRef", env.Name)
+	}
+	if env.Spec.OnDemand == nil {
+		return fmt.Sprintf("ClaudeEnvironment %q is not in on-demand mode", env.Name)
+	}
+	return ""
 }
 
 // awaitWorkOrder confirms, before the pod exists, that the work-order Secret

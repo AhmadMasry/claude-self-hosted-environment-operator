@@ -50,7 +50,7 @@ func TestOrchestratorRBAC(t *testing.T) {
 		t.Fatal("role identity wrong")
 	}
 	wantRules := []rbacv1.PolicyRule{
-		{APIGroups: []string{testAPIGroup}, Resources: []string{"claudeenvironments"}, Verbs: []string{verbGet}},
+		{APIGroups: []string{testAPIGroup}, Resources: []string{"claudeenvironments"}, Verbs: []string{verbGet}, ResourceNames: []string{env.Name}},
 		{APIGroups: []string{testAPIGroup}, Resources: []string{"clauderunners"}, Verbs: []string{verbCreate, verbGet}},
 		{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{verbCreate, "patch", "delete"}},
 	}
@@ -87,7 +87,7 @@ func equalRule(a, b rbacv1.PolicyRule) bool {
 		}
 		return true
 	}
-	return eq(a.APIGroups, b.APIGroups) && eq(a.Resources, b.Resources) && eq(a.Verbs, b.Verbs)
+	return eq(a.APIGroups, b.APIGroups) && eq(a.Resources, b.Resources) && eq(a.Verbs, b.Verbs) && eq(a.ResourceNames, b.ResourceNames)
 }
 
 func TestOrchestratorArgs(t *testing.T) {

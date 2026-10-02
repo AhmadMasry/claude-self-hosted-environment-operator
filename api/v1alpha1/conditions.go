@@ -57,6 +57,7 @@ const (
 	ReasonWorkOrderMissing             = "WorkOrderMissing"
 	ReasonEnvironmentMissing           = "EnvironmentMissing"
 	ReasonPodLost                      = "PodLost"
+	ReasonEnvironmentMismatch          = "EnvironmentMismatch"
 	ReasonOrchestratorUnavailable      = "OrchestratorUnavailable"
 	ReasonOnDemandSecretOnOrchestrator = "OnDemandSecretOnOrchestrator"
 	ReasonHookImageUnset               = "HookImageUnset"
