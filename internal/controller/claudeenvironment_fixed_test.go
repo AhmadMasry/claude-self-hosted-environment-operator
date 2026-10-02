@@ -339,6 +339,7 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		Expect(k8sClient.Create(ctx, pod)).To(Succeed())
 		now := metav1.Now()
 		pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: builders.RunnerContainerName, RestartCount: 3,
+			State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
 			LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
 				ExitCode: 1, StartedAt: metav1.NewTime(now.Add(-5 * time.Second)), FinishedAt: now,
 				Message: "[runner:fatal] --use-anthropic-git-proxy requires --capacity 1"}}}}

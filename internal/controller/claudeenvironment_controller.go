@@ -271,7 +271,7 @@ func (r *ClaudeEnvironmentReconciler) checkRunnerPods(ctx context.Context, env *
 	if err := r.List(ctx, pods, client.InNamespace(env.Namespace), client.MatchingLabels(builders.RunnerSelectorLabels(env))); err != nil {
 		return err
 	}
-	if failed, msg := detectFailedStart(pods.Items); failed {
+	if failed, msg := detectFailedStart(pods.Items, time.Now()); failed {
 		pass.degrade(selfhostedv1alpha1.ReasonRunnerFailedStart, msg)
 		r.Recorder.Event(env, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonRunnerFailedStart, msg)
 	}
