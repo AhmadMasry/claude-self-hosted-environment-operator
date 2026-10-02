@@ -184,7 +184,9 @@ func (r *ClaudeEnvironmentReconciler) resolveConfigMaps(ctx context.Context, env
 		if requiredKey != "" {
 			if _, has := cm.Data[requiredKey]; !has {
 				if _, hasBin := cm.BinaryData[requiredKey]; !hasBin {
-					pass.degrade(selfhostedv1alpha1.ReasonConfigMapMissing, fmt.Sprintf("ConfigMap %q has no key %q", name, requiredKey))
+					msg := fmt.Sprintf("ConfigMap %q has no key %q", name, requiredKey)
+					pass.degrade(selfhostedv1alpha1.ReasonConfigMapMissing, msg)
+					r.Recorder.Event(env, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonConfigMapMissing, msg)
 					ok = false
 					continue
 				}
