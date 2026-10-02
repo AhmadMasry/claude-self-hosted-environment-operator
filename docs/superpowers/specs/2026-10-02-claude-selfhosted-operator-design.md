@@ -219,10 +219,9 @@ spec:
       configMapRef: {name: runner-claude-config}   # sets SELF_HOSTED_RUNNER_HOST_CONFIG_DIR
     podTemplate: {}                    # curated, see 5.3
     terminationGracePeriodSeconds: null  # computed unless set; must be >= computed
-    networkPolicy:
+    networkPolicy:                     # see section 7
       enabled: false
-      gitHosts: ["github.com"]         # resolved at apply time? no: CIDRs only, see 7
-      additionalEgressCIDRs: []
+      egressCIDRs: []                  # CIDRs for api.anthropic.com, git host, internal services
   fixed:                               # exactly one of fixed | onDemand
     replicas: 3
     persistentWorkspace:               # optional; StatefulSet; requires settings.lockToAccount
@@ -377,10 +376,9 @@ Owns, by mode:
   `restartPolicy: Always`. Label
   `app.kubernetes.io/part-of: claude-code-self-hosted-runner` so the
   product's documented PodMonitor matches.
-- OnDemand: a ServiceAccount `<env>-orchestrator`, a Role allowing
-  `create, get` on `claudeenvironments.selfhosted.claudecode.dev/claudeenvironments`
-  (get only), `claudeenvironments/claudeenvironments`... precisely:
-  `get` on ClaudeEnvironments, `create, get` on ClaudeRunners, `create` on
+- OnDemand: a ServiceAccount `<env>-orchestrator`; a Role granting
+  `get` on ClaudeEnvironments, `create, get` on ClaudeRunners (plus `list`
+  only when `maxConcurrentRunners` is set), and `create, patch` on
   Secrets, all in the environment's namespace; a RoleBinding; a
   Deployment `<env>-orchestrator` running the user's image with args
   `self-hosted-runner orchestrator --environment-secret-file ...
@@ -488,7 +486,7 @@ The whole run is bounded by a context deadline below the orchestrator's
   The Helm chart labels its namespace the same way by default.
 - Egress: optional per-environment NetworkPolicy, off by default. When
   enabled: default-deny egress; allow UDP/TCP 53 to kube-dns; allow TCP
-  443 to `additionalEgressCIDRs`; explicit deny of `169.254.169.254/32`.
+  443 to `egressCIDRs`; explicit deny of `169.254.169.254/32`.
   Hostnames cannot be expressed in NetworkPolicy, so the user supplies the
   CIDRs for `api.anthropic.com` and the git host, and the docs say how to
   do it with their CNI's FQDN policies instead when available.
