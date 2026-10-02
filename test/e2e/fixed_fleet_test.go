@@ -90,6 +90,13 @@ func fixedFleetSpecs() {
 				g.Expect(strings.Fields(out)).To(Equal([]string{"Running", "Running"}))
 			}, time.Minute, 2*time.Second).Should(Succeed())
 
+			By("checking the egress NetworkPolicy exists (kind's default CNI does not enforce it)")
+			out, err = utils.Run(exec.Command("kubectl", "-n", e2eNamespace, "get", "networkpolicy", "e2e-egress",
+				"-o", "jsonpath={.spec.policyTypes} {.spec.egress[1].to[0].ipBlock.cidr}"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(ContainSubstring("Egress"))
+			Expect(out).To(ContainSubstring("10.0.0.0/8"))
+
 			By("checking no pod was rejected by the Pod Security admission controller")
 			out, err = utils.Run(exec.Command("kubectl", "-n", e2eNamespace, "get", "events",
 				"--field-selector", "reason=FailedCreate", "-o", "name"))

@@ -27,6 +27,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -101,6 +102,7 @@ func (r *ClaudeEnvironmentReconciler) hookImage() string {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;patch;delete
 // +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=clauderunners,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile drives one ClaudeEnvironment towards its desired state.
@@ -169,11 +171,31 @@ func (r *ClaudeEnvironmentReconciler) reconcile(ctx context.Context, env *selfho
 	if env.Spec.OnDemand != nil {
 		env.Status.Mode = "onDemand"
 		env.Status.Fixed = nil
-		return r.reconcileOnDemand(ctx, env, pass, secret)
+		res, err := r.reconcileOnDemand(ctx, env, pass, secret)
+		return r.withNetworkPolicy(ctx, env, res, err)
 	}
 	env.Status.Mode = "fixed"
 	env.Status.OnDemand = nil
-	return r.reconcileFixed(ctx, env, pass, secret, configMaps)
+	res, err := r.reconcileFixed(ctx, env, pass, secret, configMaps)
+	return r.withNetworkPolicy(ctx, env, res, err)
+}
+
+// withNetworkPolicy reconciles the egress policy once the mode branch has
+// succeeded, passing the branch's result through.
+func (r *ClaudeEnvironmentReconciler) withNetworkPolicy(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, res ctrl.Result, err error) (ctrl.Result, error) {
+	if err != nil {
+		return res, err
+	}
+	return res, r.reconcileNetworkPolicy(ctx, env)
+}
+
+func (r *ClaudeEnvironmentReconciler) reconcileNetworkPolicy(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment) error {
+	np := env.Spec.Runner.NetworkPolicy
+	obj := builders.EnvironmentNetworkPolicy(env)
+	if np == nil || !np.Enabled {
+		return r.deleteIfOwned(ctx, env, &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: obj.Name, Namespace: obj.Namespace}})
+	}
+	return r.apply(ctx, env, obj)
 }
 
 func (r *ClaudeEnvironmentReconciler) resolveSecret(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) (*corev1.Secret, bool, error) {
@@ -520,7 +542,7 @@ func (r *ClaudeEnvironmentReconciler) deleteIfOwned(ctx context.Context, env *se
 }
 
 // CacheByObject restricts the manager's Pod informer to pods carrying an
-// operator role label, and its ServiceAccount, Role and RoleBinding informers
+// operator role label, and its ServiceAccount, Role, RoleBinding and NetworkPolicy informers
 // to objects carrying the operator's part-of label, so these watches do not
 // cache every such object in the cluster. Secrets and ConfigMaps stay
 // unfiltered because users name them.
@@ -536,10 +558,11 @@ func CacheByObject() (map[client.Object]cache.ByObject, error) {
 	}
 	operatorOwned := cache.ByObject{Label: labels.NewSelector().Add(*partOf)}
 	return map[client.Object]cache.ByObject{
-		&corev1.Pod{}:            {Label: labels.NewSelector().Add(*role)},
-		&corev1.ServiceAccount{}: operatorOwned,
-		&rbacv1.Role{}:           operatorOwned,
-		&rbacv1.RoleBinding{}:    operatorOwned,
+		&corev1.Pod{}:                 {Label: labels.NewSelector().Add(*role)},
+		&corev1.ServiceAccount{}:      operatorOwned,
+		&rbacv1.Role{}:                operatorOwned,
+		&rbacv1.RoleBinding{}:         operatorOwned,
+		&networkingv1.NetworkPolicy{}: operatorOwned,
 	}, nil
 }
 
@@ -568,6 +591,7 @@ func (r *ClaudeEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.RoleBinding{}).
+		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&selfhostedv1alpha1.ClaudeRunner{}, builder.WithPredicates(runnerPhaseChanged())).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.environmentsReferencing(indexSecretName))).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.environmentsReferencing(indexConfigMapNames))).

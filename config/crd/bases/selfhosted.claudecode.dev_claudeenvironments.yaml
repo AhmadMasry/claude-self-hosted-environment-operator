@@ -3231,12 +3231,17 @@ spec:
                     type: object
                   networkPolicy:
                     description: NetworkPolicySpec configures the optional egress
-                      policy (implemented in a later plan).
+                      policy.
                     properties:
                       egressCIDRs:
                         items:
+                          maxLength: 18
                           type: string
+                        maxItems: 64
                         type: array
+                        x-kubernetes-validations:
+                        - message: egressCIDRs must be IPv4 CIDRs
+                          rule: self.all(c, c.matches('^[0-9]{1,3}(\\.[0-9]{1,3}){3}/[0-9]{1,2}$'))
                       enabled:
                         type: boolean
                     type: object

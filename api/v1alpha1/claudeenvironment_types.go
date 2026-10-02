@@ -161,10 +161,13 @@ type RunnerSpec struct {
 	NetworkPolicy *NetworkPolicySpec `json:"networkPolicy,omitempty"`
 }
 
-// NetworkPolicySpec configures the optional egress policy (implemented in a later plan).
+// NetworkPolicySpec configures the optional egress policy.
 type NetworkPolicySpec struct {
 	// +optional
 	Enabled bool `json:"enabled,omitempty"`
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:MaxLength=18
+	// +kubebuilder:validation:XValidation:rule="self.all(c, c.matches('^[0-9]{1,3}(\\\\.[0-9]{1,3}){3}/[0-9]{1,2}$'))",message="egressCIDRs must be IPv4 CIDRs"
 	// +optional
 	EgressCIDRs []string `json:"egressCIDRs,omitempty"`
 }

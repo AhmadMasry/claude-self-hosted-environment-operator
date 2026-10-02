@@ -25,6 +25,8 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -370,6 +372,33 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		var first string
 		Eventually(func() error { var err error; first, err = snapshot(); return err }, timeout, interval).Should(Succeed())
 		Consistently(snapshot, 3*time.Second, interval).Should(Equal(first))
+	})
+
+	It("creates a default-deny egress NetworkPolicy when enabled and deletes it when disabled", func() {
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
+		env := fixedEnv(ns)
+		env.Spec.Runner.NetworkPolicy = &selfhostedv1alpha1.NetworkPolicySpec{Enabled: true, EgressCIDRs: []string{"10.0.0.0/8"}}
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		key := client.ObjectKeyFromObject(env)
+		npKey := types.NamespacedName{Name: builders.NetworkPolicyName(env), Namespace: ns}
+
+		np := &networkingv1.NetworkPolicy{}
+		Eventually(func() error { return k8sClient.Get(ctx, npKey, np) }, timeout, interval).Should(Succeed())
+		Expect(np.Name).To(Equal(envName + "-egress"))
+		Expect(np.Spec.PodSelector.MatchLabels).To(Equal(map[string]string{selfhostedv1alpha1.LabelEnvironment: envName}))
+		Expect(np.Spec.PolicyTypes).To(Equal([]networkingv1.PolicyType{networkingv1.PolicyTypeEgress}))
+		Expect(np.Spec.Egress).To(HaveLen(2))
+		Expect(np.Spec.Egress[0].To[0].PodSelector.MatchLabels).To(HaveKeyWithValue("k8s-app", "kube-dns"))
+		Expect(np.OwnerReferences).To(HaveLen(1))
+		Expect(np.OwnerReferences[0].Name).To(Equal(envName))
+
+		Expect(k8sClient.Get(ctx, key, env)).To(Succeed())
+		env.Spec.Runner.NetworkPolicy.Enabled = false
+		Expect(k8sClient.Update(ctx, env)).To(Succeed())
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, npKey, &networkingv1.NetworkPolicy{}))
+		}, timeout, interval).Should(BeTrue())
 	})
 
 	It("marks the environment Degraded when runner pods keep failing at start", func() {
