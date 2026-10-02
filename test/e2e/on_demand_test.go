@@ -108,12 +108,61 @@ func onDemandSpecs() {
 
 		It("denies the orchestrator identity anything outside its own work orders", func() {
 			sa := "system:serviceaccount:" + odNamespace + ":e2e-od-orchestrator"
+			const secretMsg = "an orchestrator ServiceAccount may only manage its own environment's Secrets named *-work-order"
 			_, err := kubectlOD("create", "secret", "generic", "evil", "--from-literal=k=v", "--as", sa)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("orchestrator ServiceAccount may only manage Secrets named *-work-order"))
-			_, err = kubectlOD("create", "secret", "generic", "ok-work-order", "--from-literal=jwt=x", "--as", sa)
+			Expect(err.Error()).To(ContainSubstring(secretMsg))
+
+			_, err = kubectlOD("create", "secret", "generic", "nolabel-work-order", "--from-literal=jwt=x", "--as", sa)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(secretMsg))
+
+			manifest := `apiVersion: v1
+kind: Secret
+metadata:
+  name: ok-work-order
+  labels:
+    selfhosted.claudecode.dev/environment: e2e-od
+stringData:
+  jwt: x
+`
+			apply := exec.Command("kubectl", "-n", odNamespace, "create", "--as", sa, "-f", "-")
+			apply.Stdin = strings.NewReader(manifest)
+			_, err = utils.Run(apply)
 			Expect(err).NotTo(HaveOccurred())
-			_, _ = kubectlOD("delete", "secret", "ok-work-order", "--as", sa)
+			_, err = kubectlOD("delete", "secret", "ok-work-order", "--as", sa)
+			Expect(err).NotTo(HaveOccurred())
+
+			uid, err := kubectlOD("get", "claudeenvironment", "e2e-od", "-o", "jsonpath={.metadata.uid}")
+			Expect(err).NotTo(HaveOccurred())
+			runner := `apiVersion: selfhosted.claudecode.dev/v1alpha1
+kind: ClaudeRunner
+metadata:
+  name: evil-order
+  ownerReferences:
+    - apiVersion: selfhosted.claudecode.dev/v1alpha1
+      kind: ClaudeEnvironment
+      name: e2e-od
+      uid: ` + strings.TrimSpace(uid) + `
+      controller: true
+      blockOwnerDeletion: true
+spec:
+  environmentRef:
+    name: e2e-od
+  orderID: other-order
+  workOrderSecretRef:
+    name: other-order-work-order
+`
+			apply = exec.Command("kubectl", "-n", odNamespace, "create", "--as", sa, "-f", "-")
+			apply.Stdin = strings.NewReader(runner)
+			_, err = utils.Run(apply)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("an orchestrator may only create ClaudeRunners owned by its own ClaudeEnvironment that reference their own work order"))
+
+			_, err = kubectlOD("create", "secret", "generic", "evil2", "--from-literal=k=v")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = kubectlOD("delete", "secret", "evil2")
+			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 }

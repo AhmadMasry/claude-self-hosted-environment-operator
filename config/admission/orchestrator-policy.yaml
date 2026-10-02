@@ -12,13 +12,29 @@ spec:
         apiVersions: ["v1"]
         operations: ["CREATE", "UPDATE", "DELETE"]
         resources: ["secrets"]
+  variables:
+    - name: prefix
+      expression: "'system:serviceaccount:' + request.namespace + ':'"
+    - name: env
+      expression: >-
+        request.userInfo.username.startsWith(variables.prefix) &&
+        request.userInfo.username.endsWith('-orchestrator') &&
+        request.userInfo.username.size() > variables.prefix.size() + '-orchestrator'.size()
+        ? request.userInfo.username.substring(variables.prefix.size(), request.userInfo.username.size() - '-orchestrator'.size())
+        : ''
   matchConditions:
+    # variables are not available in matchConditions, so the expressions are inlined here.
     - name: orchestrator-service-account
-      expression: "request.userInfo.username.startsWith('system:serviceaccount:') && request.userInfo.username.endsWith('-orchestrator')"
+      expression: "request.userInfo.username.startsWith('system:serviceaccount:' + request.namespace + ':') && request.userInfo.username.endsWith('-orchestrator') && request.userInfo.username.size() > ('system:serviceaccount:' + request.namespace + ':').size() + '-orchestrator'.size()"
+    - name: bound-by-the-operator
+      expression: "authorizer.group('selfhosted.claudecode.dev').resource('claudeenvironments').namespace(request.namespace).name(request.userInfo.username.substring(('system:serviceaccount:' + request.namespace + ':').size(), request.userInfo.username.size() - '-orchestrator'.size())).check('get').allowed()"
   validations:
-    - expression: "(request.operation == 'DELETE' ? oldObject : object).metadata.name.endsWith('-work-order')"
+    - expression: >-
+        (request.operation == 'DELETE' ? oldObject : object).metadata.name.endsWith('-work-order') &&
+        (request.operation == 'DELETE' || (has(object.metadata.labels) && 'selfhosted.claudecode.dev/environment' in object.metadata.labels && object.metadata.labels['selfhosted.claudecode.dev/environment'] == variables.env)) &&
+        (request.operation == 'CREATE' || (has(oldObject.metadata.labels) && 'selfhosted.claudecode.dev/environment' in oldObject.metadata.labels && oldObject.metadata.labels['selfhosted.claudecode.dev/environment'] == variables.env))
       reason: Forbidden
-      message: "an orchestrator ServiceAccount may only manage Secrets named *-work-order"
+      message: "an orchestrator ServiceAccount may only manage its own environment's Secrets named *-work-order"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -40,17 +56,32 @@ spec:
         apiVersions: ["v1alpha1"]
         operations: ["CREATE"]
         resources: ["clauderunners"]
+  variables:
+    - name: prefix
+      expression: "'system:serviceaccount:' + request.namespace + ':'"
+    - name: env
+      expression: >-
+        request.userInfo.username.startsWith(variables.prefix) &&
+        request.userInfo.username.endsWith('-orchestrator') &&
+        request.userInfo.username.size() > variables.prefix.size() + '-orchestrator'.size()
+        ? request.userInfo.username.substring(variables.prefix.size(), request.userInfo.username.size() - '-orchestrator'.size())
+        : ''
   matchConditions:
+    # variables are not available in matchConditions, so the expressions are inlined here.
     - name: orchestrator-service-account
-      expression: "request.userInfo.username.startsWith('system:serviceaccount:') && request.userInfo.username.endsWith('-orchestrator')"
+      expression: "request.userInfo.username.startsWith('system:serviceaccount:' + request.namespace + ':') && request.userInfo.username.endsWith('-orchestrator') && request.userInfo.username.size() > ('system:serviceaccount:' + request.namespace + ':').size() + '-orchestrator'.size()"
+    - name: bound-by-the-operator
+      expression: "authorizer.group('selfhosted.claudecode.dev').resource('claudeenvironments').namespace(request.namespace).name(request.userInfo.username.substring(('system:serviceaccount:' + request.namespace + ':').size(), request.userInfo.username.size() - '-orchestrator'.size())).check('get').allowed()"
   validations:
     - expression: >-
+        object.spec.workOrderSecretRef.name == object.metadata.name + '-work-order' &&
         has(object.metadata.ownerReferences) &&
         object.metadata.ownerReferences.exists(o,
-          o.kind == 'ClaudeEnvironment' && has(o.controller) && o.controller &&
-          request.userInfo.username == 'system:serviceaccount:' + object.metadata.namespace + ':' + o.name + '-orchestrator')
+          o.apiVersion == 'selfhosted.claudecode.dev/v1alpha1' && o.kind == 'ClaudeEnvironment' &&
+          has(o.controller) && o.controller && o.name == variables.env &&
+          object.spec.environmentRef.name == o.name)
       reason: Forbidden
-      message: "an orchestrator may only create ClaudeRunners owned by its own ClaudeEnvironment"
+      message: "an orchestrator may only create ClaudeRunners owned by its own ClaudeEnvironment that reference their own work order"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
