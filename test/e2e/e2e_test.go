@@ -63,6 +63,12 @@ var _ = Describe("Manager", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with restricted policy")
 
+		// The upgrade specs install the previous revision and then deploy the
+		// current one themselves, so the suite must not do it first.
+		if os.Getenv("UPGRADE_FROM_INSTALLER") != "" {
+			return
+		}
+
 		By("installing CRDs")
 		cmd = exec.Command("make", "install")
 		_, err = utils.Run(cmd)
@@ -139,6 +145,9 @@ var _ = Describe("Manager", Ordered, func() {
 
 	SetDefaultEventuallyTimeout(2 * time.Minute)
 	SetDefaultEventuallyPollingInterval(time.Second)
+
+	// Runs first: it installs the current manager itself when upgrading.
+	upgradeSpecs()
 
 	Context("Manager", func() {
 		It("should run successfully", func() {

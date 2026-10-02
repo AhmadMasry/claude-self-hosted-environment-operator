@@ -1,0 +1,13 @@
+apiVersion: selfhosted.claudecode.dev/v1alpha1
+kind: ClaudeEnvironment
+metadata:
+  name: e2e-invalid
+  namespace: claude-e2e
+spec:
+  environmentSecretRef:
+    name: claude-env-secret
+  runner:
+    image: "nginx"
+    capacity: 1
+  fixed:
+    replicas: 1
