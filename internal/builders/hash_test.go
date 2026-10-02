@@ -10,6 +10,7 @@ import (
 const (
 	testSecretName = "env-secret"
 	testConfigMap  = "hooks"
+	testCMName     = "test"
 )
 
 func TestConfigHashChangesWithInputs(t *testing.T) {
@@ -46,5 +47,38 @@ func TestConfigHashChangesWithInputs(t *testing.T) {
 	}
 	if ConfigHash(env, nil, nil) == "" {
 		t.Fatal("nil inputs must still hash")
+	}
+}
+
+func TestConfigHashBoundary(t *testing.T) {
+	env := testEnv()
+	sec := &corev1.Secret{}
+	cm1 := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: testCMName}, Data: map[string]string{"a": "bc"}}
+	cm2 := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: testCMName}, Data: map[string]string{"ab": "c"}}
+	if ConfigHash(env, sec, []*corev1.ConfigMap{cm1}) == ConfigHash(env, sec, []*corev1.ConfigMap{cm2}) {
+		t.Fatal("different data must produce different hash")
+	}
+}
+
+func TestConfigHashOrderIndependent(t *testing.T) {
+	env := testEnv()
+	sec := &corev1.Secret{}
+	cm1 := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "a-map"}, Data: map[string]string{"x": "1"}}
+	cm2 := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "b-map"}, Data: map[string]string{"y": "2"}}
+	h1 := ConfigHash(env, sec, []*corev1.ConfigMap{cm1, cm2})
+	h2 := ConfigHash(env, sec, []*corev1.ConfigMap{cm2, cm1})
+	if h1 != h2 {
+		t.Fatal("order of ConfigMaps must not affect hash")
+	}
+}
+
+func TestConfigHashNilEntry(t *testing.T) {
+	env := testEnv()
+	sec := &corev1.Secret{}
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: testCMName}, Data: map[string]string{"k": "v"}}
+	h1 := ConfigHash(env, sec, []*corev1.ConfigMap{nil, cm})
+	h2 := ConfigHash(env, sec, []*corev1.ConfigMap{cm})
+	if h1 != h2 {
+		t.Fatal("nil entries must not affect hash")
 	}
 }
