@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -36,6 +37,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/telemetry"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -43,11 +45,12 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	ctx       context.Context
-	cancel    context.CancelFunc
-	testEnv   *envtest.Environment
-	cfg       *rest.Config
-	k8sClient client.Client
+	spanExporter = tracetest.NewInMemoryExporter()
+	ctx          context.Context
+	cancel       context.CancelFunc
+	testEnv      *envtest.Environment
+	cfg          *rest.Config
+	k8sClient    client.Client
 
 	envReconciler    *ClaudeEnvironmentReconciler
 	runnerReconciler *ClaudeRunnerReconciler
@@ -61,6 +64,7 @@ func TestControllers(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	telemetry.InstallExporter(spanExporter)
 
 	ctx, cancel = context.WithCancel(context.TODO())
 

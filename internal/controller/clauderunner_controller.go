@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -36,6 +37,7 @@ import (
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/metrics"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/telemetry"
 )
 
 const (
@@ -64,6 +66,10 @@ func (r *ClaudeRunnerReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err := r.Get(ctx, req.NamespacedName, runner); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	ctx = telemetry.ContextWithTraceparent(ctx, runner.Annotations[selfhostedv1alpha1.AnnotationTraceparent])
+	ctx, span := telemetry.StartSpan(ctx, "clauderunner.reconcile",
+		attribute.String("k8s.namespace.name", req.Namespace), attribute.String("order_id", runner.Spec.OrderID))
+	defer span.End()
 	if !runner.DeletionTimestamp.IsZero() {
 		return r.finalize(ctx, runner)
 	}

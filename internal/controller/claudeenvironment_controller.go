@@ -22,6 +22,7 @@ import (
 	"slices"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -45,6 +46,7 @@ import (
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/metrics"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/telemetry"
 )
 
 const (
@@ -79,6 +81,9 @@ type ClaudeEnvironmentReconciler struct {
 
 // Reconcile drives one ClaudeEnvironment towards its desired state.
 func (r *ClaudeEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx, span := telemetry.StartSpan(ctx, "claudeenvironment.reconcile",
+		attribute.String("k8s.namespace.name", req.Namespace), attribute.String("environment", req.Name))
+	defer span.End()
 	env := &selfhostedv1alpha1.ClaudeEnvironment{}
 	if err := r.Get(ctx, req.NamespacedName, env); err != nil {
 		if apierrors.IsNotFound(err) {

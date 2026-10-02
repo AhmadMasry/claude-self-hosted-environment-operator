@@ -201,4 +201,22 @@ var _ = Describe("ClaudeRunner controller", func() {
 			fmt.Sprintf("pod %s should be deleted by the finalizer", key))
 		Eventually(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &selfhostedv1alpha1.ClaudeRunner{})) }, timeout, interval).Should(BeTrue())
 	})
+
+	It("continues the trace the hook started", func() {
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, onDemandEnvObj(ns))).To(Succeed())
+		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-8"))).To(Succeed())
+		r := runnerObj(ns, "order-8")
+		r.Annotations = map[string]string{selfhostedv1alpha1.AnnotationTraceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}
+		Expect(k8sClient.Create(ctx, r)).To(Succeed())
+		Eventually(runnerPhase(ctx, client.ObjectKeyFromObject(r)), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerPending))
+		Eventually(func() bool {
+			for _, s := range spanExporter.GetSpans() {
+				if s.Name == "clauderunner.reconcile" && s.SpanContext.TraceID().String() == "4bf92f3577b34da6a3ce929d0e0e4736" {
+					return true
+				}
+			}
+			return false
+		}, timeout, interval).Should(BeTrue())
+	})
 })

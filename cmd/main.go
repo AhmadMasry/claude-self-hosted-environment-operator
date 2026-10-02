@@ -17,10 +17,12 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -39,6 +41,7 @@ import (
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/controller"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/telemetry"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -84,13 +87,18 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	var logFormat, logLevel, watchNamespaces, hookImage string
+	var logFormat, logLevel, watchNamespaces, hookImage, tracingEndpoint string
+	var tracingSampleRatio float64
 	flag.StringVar(&logFormat, "log-format", "json", "Log format: json or text.")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug, info or error.")
 	flag.StringVar(&watchNamespaces, "watch-namespaces", "",
 		"Comma-separated namespaces to watch. Empty watches all namespaces.")
 	flag.StringVar(&hookImage, "hook-image", defaultHookImage(),
 		"Image that carries /spawn-runner for orchestrator pods. Defaults to $OPERATOR_IMAGE.")
+	flag.StringVar(&tracingEndpoint, "tracing-endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		"OTLP gRPC endpoint for traces; empty disables tracing")
+	flag.Float64Var(&tracingSampleRatio, "tracing-sample-ratio", 0.1,
+		"Fraction of root traces to sample when tracing is enabled")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -102,6 +110,20 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), zap.UseDevMode(logFormat == "text"), zap.Level(lvl)))
 	setupLog.Info("Starting claude-selfhosted-operator",
 		"version", version, "logFormat", logFormat, "hookImage", hookImage)
+
+	ctx := ctrl.SetupSignalHandler()
+	shutdownTracing, err := telemetry.Init(ctx, tracingEndpoint, telemetry.ServiceManager, tracingSampleRatio)
+	if err != nil {
+		setupLog.Error(err, "Failed to set up tracing")
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracing(shutdownCtx); err != nil {
+			setupLog.Error(err, "Failed to shut down tracing")
+		}
+	}()
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -235,7 +257,7 @@ func main() {
 	}
 
 	setupLog.Info("Starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}

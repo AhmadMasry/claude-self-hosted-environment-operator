@@ -23,11 +23,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/hook"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/telemetry"
 )
 
 var version = "dev"
@@ -78,7 +81,19 @@ func runHook() int {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return hook.ExitRetryable
 	}
-	res := hook.Run(ctx, c, in, jwt, "")
+	shutdown, err := telemetry.Init(ctx, os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"), telemetry.ServiceHook, 1)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: tracing disabled:", err)
+		shutdown = func(context.Context) error { return nil }
+	}
+	ctx, span := telemetry.StartSpan(ctx, "spawn-runner.run",
+		attribute.String("order_id", in.OrderID), attribute.String("session_id", in.SessionID))
+	res := hook.Run(ctx, c, in, jwt, telemetry.TraceparentFrom(ctx))
+	span.SetAttributes(attribute.String("outcome", res.Outcome), attribute.Int("exit_code", res.ExitCode))
+	span.End()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer shutdownCancel()
+	_ = shutdown(shutdownCtx)
 	hook.WriteLog(os.Stdout, in, res)
 	if res.Err != nil {
 		fmt.Fprintln(os.Stderr, "error:", hook.Redact(res.Err.Error()))
