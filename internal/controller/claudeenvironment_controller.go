@@ -27,11 +27,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -297,6 +300,20 @@ func (r *ClaudeEnvironmentReconciler) deleteIfOwned(ctx context.Context, env *se
 		return nil
 	}
 	return client.IgnoreNotFound(r.Delete(ctx, obj))
+}
+
+// CacheByObject restricts the manager's Pod informer to pods carrying an
+// operator role label, so the Pod watch does not cache every pod in the
+// cluster.
+func CacheByObject() (map[client.Object]cache.ByObject, error) {
+	role, err := labels.NewRequirement(selfhostedv1alpha1.LabelRole, selection.In,
+		[]string{selfhostedv1alpha1.RoleRunner, selfhostedv1alpha1.RoleOrchestrator})
+	if err != nil {
+		return nil, err
+	}
+	return map[client.Object]cache.ByObject{
+		&corev1.Pod{}: {Label: labels.NewSelector().Add(*role)},
+	}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

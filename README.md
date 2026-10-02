@@ -33,6 +33,8 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
        make install
        make deploy IMG=<operator image>
 
+   The operator watches Secrets and ConfigMaps cluster-wide unless the manager runs with `--watch-namespaces`.
+
 6. **Apply the example.** Edit `runner.image` in `examples/fixed-fleet.yaml` to your image first.
 
        kubectl apply -f examples/hooks-configmap.yaml -f examples/fixed-fleet.yaml

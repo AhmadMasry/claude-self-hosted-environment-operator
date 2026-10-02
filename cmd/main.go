@@ -168,9 +168,17 @@ func main() {
 		metricsServerOptions.KeyName = metricsCertKey
 	}
 
+	byObject, err := controller.CacheByObject()
+	if err != nil {
+		setupLog.Error(err, "Failed to build cache selectors")
+		os.Exit(1)
+	}
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		Cache:                  cache.Options{DefaultNamespaces: parseWatchNamespaces(watchNamespaces)},
+		Scheme: scheme,
+		Cache: cache.Options{
+			DefaultNamespaces: parseWatchNamespaces(watchNamespaces),
+			ByObject:          byObject,
+		},
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
