@@ -64,6 +64,7 @@ const (
 	ReasonHookImageUnset               = "HookImageUnset"
 	ReasonFleetAvailable               = "FleetAvailable"
 	ReasonCreated                      = "Created"
+	ReasonOrphanedWorkOrderDeleted     = "OrphanedWorkOrderDeleted"
 
 	LabelOrderID          = "selfhosted.claudecode.dev/order-id"
 	LabelSessionID        = "selfhosted.claudecode.dev/session-id"

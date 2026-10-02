@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -349,7 +350,51 @@ func (r *ClaudeEnvironmentReconciler) reconcileOnDemand(ctx context.Context, env
 	}
 	counts.OrchestratorReadyReplicas = dep.Status.ReadyReplicas
 	env.Status.OnDemand = &counts
+	if err := r.sweepOrphanedWorkOrders(ctx, env); err != nil {
+		return ctrl.Result{}, err
+	}
 	return ctrl.Result{RequeueAfter: resyncPeriod}, nil
+}
+
+// sweepOrphanedWorkOrders deletes work-order Secrets that no ClaudeRunner
+// references once the spawn deadline has passed, so a hook crash between its
+// two creates cannot leave a live JWT behind. Only Secrets the hook made for
+// this environment qualify: both operator labels, the work-order name suffix
+// and the environment as controller owner. The environment key Secret is never
+// deleted, whatever it is named or labelled.
+func (r *ClaudeEnvironmentReconciler) sweepOrphanedWorkOrders(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment) error {
+	secrets := &corev1.SecretList{}
+	if err := r.List(ctx, secrets, client.InNamespace(env.Namespace),
+		client.MatchingLabels{selfhostedv1alpha1.LabelEnvironment: env.Name}, client.HasLabels{selfhostedv1alpha1.LabelOrderID}); err != nil {
+		return err
+	}
+	runners := &selfhostedv1alpha1.ClaudeRunnerList{}
+	if err := r.List(ctx, runners, client.InNamespace(env.Namespace), client.MatchingLabels{selfhostedv1alpha1.LabelEnvironment: env.Name}); err != nil {
+		return err
+	}
+	referenced := map[string]bool{}
+	for i := range runners.Items {
+		referenced[runners.Items[i].Spec.WorkOrderSecretRef.Name] = true
+	}
+	deadline := time.Duration(env.Spec.OnDemand.Orchestrator.ExpectedSpawnSeconds) * time.Second
+	for i := range secrets.Items {
+		s := &secrets.Items[i]
+		if s.Name == env.Spec.EnvironmentSecretRef.Name || !strings.HasSuffix(s.Name, selfhostedv1alpha1.WorkOrderSecretSuffix) ||
+			!metav1.IsControlledBy(s, env) || referenced[s.Name] {
+			continue
+		}
+		if r.now().Sub(s.CreationTimestamp.Time) < deadline {
+			continue
+		}
+		if err := r.Delete(ctx, s); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		r.Recorder.Event(env, corev1.EventTypeNormal, selfhostedv1alpha1.ReasonOrphanedWorkOrderDeleted, "deleted unreferenced work-order Secret "+s.Name)
+	}
+	return nil
 }
 
 func (r *ClaudeEnvironmentReconciler) applyOrchestratorRBAC(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) error {
