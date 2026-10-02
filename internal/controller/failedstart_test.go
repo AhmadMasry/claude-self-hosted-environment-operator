@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,6 +24,7 @@ func podWithRestart(restarts int32, runFor time.Duration, msg string) corev1.Pod
 
 func TestDetectFailedStart(t *testing.T) {
 	fatal := "2026-10-02T10:00:00Z [self-hosted-runner] starting\n[runner:fatal] --use-anthropic-git-proxy requires --capacity 1"
+	long := "[runner:fatal] " + strings.Repeat("a", 184) + strings.Repeat("é", 20)
 	cases := []struct {
 		name    string
 		pods    []corev1.Pod
@@ -34,6 +36,7 @@ func TestDetectFailedStart(t *testing.T) {
 		{"two short restarts is not enough", []corev1.Pod{podWithRestart(2, 5*time.Second, fatal)}, false, ""},
 		{"three short restarts with fatal line", []corev1.Pod{podWithRestart(3, 5*time.Second, fatal)}, true, "[runner:fatal] --use-anthropic-git-proxy"},
 		{"error prefix", []corev1.Pod{podWithRestart(4, 2*time.Second, "error: cannot create or write to base directory /workspace\nSee --help")}, true, "error: cannot create"},
+		{"long multibyte fatal line", []corev1.Pod{podWithRestart(3, time.Second, long)}, true, "[runner:fatal] aaa"},
 		{"no message", []corev1.Pod{podWithRestart(3, 1*time.Second, "")}, true, "kubectl logs --previous"},
 		{"other container ignored", func() []corev1.Pod {
 			p := podWithRestart(5, time.Second, fatal)
@@ -49,6 +52,9 @@ func TestDetectFailedStart(t *testing.T) {
 			}
 			if tc.contain != "" && !strings.Contains(msg, tc.contain) {
 				t.Fatalf("message %q lacks %q", msg, tc.contain)
+			}
+			if !utf8.ValidString(msg) {
+				t.Fatalf("message is not valid UTF-8: %q", msg)
 			}
 			if strings.Contains(msg, "ccenvkey_") {
 				t.Fatal("message leaked a secret-looking token")
