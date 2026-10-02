@@ -189,6 +189,7 @@ func main() {
 
 	if err := (&controller.ClaudeEnvironmentReconciler{
 		Client: mgr.GetClient(),
+		Reader: mgr.GetAPIReader(),
 		Scheme: mgr.GetScheme(),
 		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
 		Recorder:  mgr.GetEventRecorderFor("claude-selfhosted-operator"),

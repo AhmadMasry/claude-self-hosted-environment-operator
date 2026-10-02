@@ -126,7 +126,7 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 	envReconciler = &ClaudeEnvironmentReconciler{
-		Client: k8sManager.GetClient(), Scheme: k8sManager.GetScheme(), Clock: clock.Now, HookImage: testHookImage,
+		Client: k8sManager.GetClient(), Reader: k8sManager.GetAPIReader(), Scheme: k8sManager.GetScheme(), Clock: clock.Now, HookImage: testHookImage,
 		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
 		Recorder: k8sManager.GetEventRecorderFor("claude-selfhosted-operator-test"),
 	}

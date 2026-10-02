@@ -62,6 +62,9 @@ const (
 // ClaudeEnvironmentReconciler reconciles a ClaudeEnvironment object.
 type ClaudeEnvironmentReconciler struct {
 	client.Client
+	// Reader is an uncached reader for deletion decisions a lagging informer
+	// must not make.
+	Reader   client.Reader
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 	// HookImage is the operator's own image, used by the init container that
@@ -386,8 +389,21 @@ func (r *ClaudeEnvironmentReconciler) sweepOrphanedWorkOrders(ctx context.Contex
 		if r.now().Sub(s.CreationTimestamp.Time) < deadline {
 			continue
 		}
-		if err := r.Delete(ctx, s); err != nil {
-			if apierrors.IsNotFound(err) {
+		// The cached runner list can lag a redelivery that reused this Secret,
+		// so confirm against the API server that no ClaudeRunner (named after
+		// the order ID) exists before deleting.
+		key := types.NamespacedName{Name: strings.TrimSuffix(s.Name, selfhostedv1alpha1.WorkOrderSecretSuffix), Namespace: s.Namespace}
+		err := r.Reader.Get(ctx, key, &selfhostedv1alpha1.ClaudeRunner{})
+		if err == nil {
+			continue
+		}
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		// The preconditions keep a stale cached copy from deleting a Secret
+		// that was recreated or handed to a ClaudeRunner since.
+		if err := r.Delete(ctx, s, client.Preconditions{UID: &s.UID, ResourceVersion: &s.ResourceVersion}); err != nil {
+			if apierrors.IsNotFound(err) || apierrors.IsConflict(err) {
 				continue
 			}
 			return err

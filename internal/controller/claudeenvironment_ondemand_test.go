@@ -245,6 +245,48 @@ var _ = Describe("ClaudeEnvironment on-demand mode", func() {
 		}, timeout, interval).Should(BeTrue())
 	})
 
+	It("keeps a work-order Secret whose ClaudeRunner the cache has not seen yet", func() {
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
+		env := onDemandEnvObj(ns)
+		env.Spec.OnDemand.Orchestrator.ExpectedSpawnSeconds = 30
+		env.Spec.OnDemand.Orchestrator.HookTimeoutSeconds = 15
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		Eventually(condition(ctx, client.ObjectKeyFromObject(env), selfhostedv1alpha1.ConditionFleetAvailable), timeout, interval).ShouldNot(BeNil())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(env), env)).To(Succeed())
+		workOrder := func(order string) *corev1.Secret {
+			s := workOrderSecret(ns, order)
+			s.Labels = map[string]string{selfhostedv1alpha1.LabelEnvironment: envName, selfhostedv1alpha1.LabelOrderID: order}
+			s.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(env, selfhostedv1alpha1.GroupVersion.WithKind("ClaudeEnvironment"))}
+			return s
+		}
+		orphan, lagging := workOrder("orphan"), workOrder("lagging")
+		Expect(k8sClient.Create(ctx, orphan)).To(Succeed())
+		Expect(k8sClient.Create(ctx, lagging)).To(Succeed())
+		// Without the environment label the ClaudeRunner never shows up in the
+		// sweep's cached list, as if the informer had not caught up with a
+		// redelivery's create; only the API server knows it exists.
+		r := ownedBy(runnerObj(ns, "lagging"), env)
+		r.Labels = nil
+		Expect(k8sClient.Create(ctx, r)).To(Succeed())
+
+		clock.Shift(time.Minute)
+		DeferCleanup(func() { clock.Shift(0) })
+		poke(ctx, client.ObjectKeyFromObject(env), "1")
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(orphan), &corev1.Secret{}))
+		}, timeout, interval).Should(BeTrue(), "the sweep must have run")
+		Consistently(func() error { return k8sClient.Get(ctx, client.ObjectKeyFromObject(lagging), &corev1.Secret{}) }, 2*time.Second, interval).
+			Should(Succeed(), "a Secret with a live ClaudeRunner must be kept")
+		events := &corev1.EventList{}
+		Expect(k8sClient.List(ctx, events, client.InNamespace(ns))).To(Succeed())
+		for _, e := range events.Items {
+			if e.Reason == selfhostedv1alpha1.ReasonOrphanedWorkOrderDeleted {
+				Expect(e.Message).NotTo(ContainSubstring(lagging.Name))
+			}
+		}
+	})
+
 	It("switches fixed to onDemand and back, cleaning up each mode's objects", func() {
 		ns := newNamespace(ctx)
 		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
