@@ -18,11 +18,15 @@ package controller
 
 import (
 	"context"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 )
@@ -77,6 +81,22 @@ var _ = Describe("ClaudeEnvironment CEL validation", func() {
 		Entry("registry port but no tag", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Runner.Image = "registry.local:5000/runner"
 		}, "must carry a tag or digest"),
+		Entry("empty tag", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Runner.Image = "registry.local/runner:"
+		}, "must carry a tag or digest"),
+		Entry("empty digest", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Runner.Image = "registry.local/runner@sha256:"
+		}, "must carry a tag or digest"),
+		Entry("baseDir on a reserved path", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Runner.BaseDir = "/tmp"
+		}, "baseDir must not be /etc/claude, /home/runner or /tmp"),
+		Entry("user mount on a reserved path", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Runner.PodTemplate.Volumes = []selfhostedv1alpha1.Volume{{Name: "x", EmptyDir: &corev1.EmptyDirVolumeSource{}}}
+			e.Spec.Runner.PodTemplate.VolumeMounts = []corev1.VolumeMount{{Name: "x", MountPath: "/etc/claude/hooks"}}
+		}, "volumeMounts must not target /etc/claude, /home/runner or /tmp"),
+		Entry("user env var with an operator-owned name", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Runner.Env = []corev1.EnvVar{{Name: "SELF_HOSTED_RUNNER_HOST_CONFIG_DIR", Value: "/x"}}
+		}, "env may not set operator-owned variables"),
 		Entry("operator-owned flag in extraArgs", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Runner.ExtraArgs = []string{"--capacity=4"}
 		}, "operator-owned flags"),
@@ -86,6 +106,22 @@ var _ = Describe("ClaudeEnvironment CEL validation", func() {
 				ExpectedSpawnSeconds: 60, HookTimeoutSeconds: 60}}
 		}, "hookTimeoutSeconds + 5 must be below"),
 	)
+
+	It("rejects forbidden pod fields at the schema level", func() {
+		for _, field := range []string{"hostNetwork", "hostPID", "privileged"} {
+			obj := &unstructured.Unstructured{}
+			obj.SetGroupVersionKind(selfhostedv1alpha1.GroupVersion.WithKind("ClaudeEnvironment"))
+			obj.SetName("forbidden-" + strings.ToLower(field))
+			obj.SetNamespace("default")
+			Expect(unstructured.SetNestedField(obj.Object, "r:1", "spec", "runner", "image")).To(Succeed())
+			Expect(unstructured.SetNestedField(obj.Object, map[string]any{"name": "s"}, "spec", "environmentSecretRef")).To(Succeed())
+			Expect(unstructured.SetNestedField(obj.Object, map[string]any{}, "spec", "fixed")).To(Succeed())
+			Expect(unstructured.SetNestedField(obj.Object, true, "spec", "runner", "podTemplate", field)).To(Succeed())
+			err := k8sClient.Create(ctx, obj, client.FieldValidation(metav1.FieldValidationStrict))
+			Expect(err).To(HaveOccurred(), field)
+			Expect(err.Error()).To(ContainSubstring("unknown field"), field)
+		}
+	})
 
 	DescribeTable("accepts valid specs and applies defaults",
 		func(mutate func(*selfhostedv1alpha1.ClaudeEnvironment)) {

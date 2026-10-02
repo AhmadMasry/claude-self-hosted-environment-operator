@@ -470,7 +470,7 @@ spec:
                       hookTimeoutSeconds:
                         default: 60
                         format: int32
-                        minimum: 1
+                        minimum: 15
                         type: integer
                       image:
                         type: string
@@ -1827,6 +1827,7 @@ spec:
                               - mountPath
                               - name
                               type: object
+                            maxItems: 64
                             type: array
                           volumes:
                             items:
@@ -3188,6 +3189,7 @@ spec:
                       required:
                       - name
                       type: object
+                    maxItems: 64
                     type: array
                   extraArgs:
                     items:
@@ -3215,8 +3217,9 @@ spec:
                     x-kubernetes-validations:
                     - message: runner.image must carry a tag or digest and must not
                         use :latest
-                      rule: self.contains('@sha256:') || (self.lastIndexOf(':') >
-                        self.lastIndexOf('/') && !self.endsWith(':latest'))
+                      rule: 'self.contains(''@sha256:'') ? size(self.substring(self.indexOf(''@sha256:'')
+                        + 8)) == 64 : (self.lastIndexOf('':'') > self.lastIndexOf(''/'')
+                        && !self.endsWith('':'') && !self.endsWith('':latest''))'
                   lifecycleHooks:
                     description: ConfigMapRef names a ConfigMap in the same namespace.
                     properties:
@@ -4573,6 +4576,7 @@ spec:
                           - mountPath
                           - name
                           type: object
+                        maxItems: 64
                         type: array
                       volumes:
                         items:
@@ -5852,6 +5856,18 @@ spec:
                 required:
                 - image
                 type: object
+                x-kubernetes-validations:
+                - message: baseDir must not be /etc/claude, /home/runner or /tmp
+                  rule: '!(self.baseDir in [''/etc/claude'',''/home/runner'',''/tmp''])
+                    && !self.baseDir.startsWith(''/etc/claude/'')'
+                - message: volumeMounts must not target /etc/claude, /home/runner
+                    or /tmp
+                  rule: '!has(self.podTemplate) || !has(self.podTemplate.volumeMounts)
+                    || !self.podTemplate.volumeMounts.exists(m, m.mountPath in [''/etc/claude'',''/home/runner'',''/tmp'']
+                    || m.mountPath.startsWith(''/etc/claude/'') || m.mountPath.startsWith(''/home/runner/'')
+                    || m.mountPath.startsWith(''/tmp/''))'
+                - message: env may not set operator-owned variables
+                  rule: '!has(self.env) || !self.env.exists(e, e.name in [''SELF_HOSTED_RUNNER_HOST_CONFIG_DIR'',''SELF_HOSTED_RUNNER_CLIENT_LABEL'',''SELF_HOSTED_RUNNER_ENVIRONMENT_SECRET''])'
             required:
             - environmentSecretRef
             - runner

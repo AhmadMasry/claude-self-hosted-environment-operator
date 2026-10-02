@@ -148,7 +148,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		ns := newNamespace(ctx)
 		env := onDemandEnvObj(ns)
 		env.Spec.OnDemand.Orchestrator.ExpectedSpawnSeconds = 30
-		env.Spec.OnDemand.Orchestrator.HookTimeoutSeconds = 5 // the CRD requires hookTimeoutSeconds + 5 < expectedSpawnSeconds
+		env.Spec.OnDemand.Orchestrator.HookTimeoutSeconds = 15 // the CRD requires hookTimeoutSeconds >= 15 and hookTimeoutSeconds + 5 < expectedSpawnSeconds
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
 		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-4"))).To(Succeed())
 		r := ownedBy(runnerObj(ns, "order-4"), env)
@@ -172,14 +172,14 @@ var _ = Describe("ClaudeRunner controller", func() {
 	It("fails cleanly when the work-order Secret is still missing at the spawn deadline", func() {
 		ns := newNamespace(ctx)
 		env := onDemandEnvObj(ns)
-		env.Spec.OnDemand.Orchestrator.ExpectedSpawnSeconds = 10
-		env.Spec.OnDemand.Orchestrator.HookTimeoutSeconds = 4 // the CRD requires hookTimeoutSeconds + 5 < expectedSpawnSeconds
+		env.Spec.OnDemand.Orchestrator.ExpectedSpawnSeconds = 21
+		env.Spec.OnDemand.Orchestrator.HookTimeoutSeconds = 15 // the CRD requires hookTimeoutSeconds >= 15 and hookTimeoutSeconds + 5 < expectedSpawnSeconds
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
 		r := ownedBy(runnerObj(ns, "order-5"), env)
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())
 		key := client.ObjectKeyFromObject(r)
 		Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerPending))
-		Eventually(runnerPhase(ctx, key), 15*time.Second, interval).Should(Equal(selfhostedv1alpha1.RunnerFailed))
+		Eventually(runnerPhase(ctx, key), 40*time.Second, interval).Should(Equal(selfhostedv1alpha1.RunnerFailed))
 		got := &selfhostedv1alpha1.ClaudeRunner{}
 		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
 		Expect(got.Status.Reason).To(Equal(selfhostedv1alpha1.ReasonWorkOrderMissing))

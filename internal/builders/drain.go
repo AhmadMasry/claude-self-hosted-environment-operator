@@ -18,9 +18,11 @@ package builders
 
 import selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 
+// Product defaults of the runner CLI; RunnerArgs omits a flag that equals its default.
 const (
-	defaultSessionStopGraceSeconds       = 5
-	defaultPostSessionHookTimeoutSeconds = 60
+	DefaultStartupTimeoutMinutes         = 15
+	DefaultSessionStopGraceSeconds       = 5
+	DefaultPostSessionHookTimeoutSeconds = 60
 	drainFixedOverheadSeconds            = 15
 	pushOutcomeOverheadSeconds           = 30
 	postReleaseGraceSeconds              = 75
@@ -29,8 +31,8 @@ const (
 // DrainBudgetSeconds returns the terminationGracePeriodSeconds the runner
 // needs to complete its documented drain path.
 func DrainBudgetSeconds(s selfhostedv1alpha1.RunnerSettings) int64 {
-	stop := int64(valueOr(s.SessionStopGraceSeconds, defaultSessionStopGraceSeconds))
-	hook := int64(valueOr(s.PostSessionHookTimeoutSeconds, defaultPostSessionHookTimeoutSeconds))
+	stop := int64(valueOr(s.SessionStopGraceSeconds, DefaultSessionStopGraceSeconds))
+	hook := int64(valueOr(s.PostSessionHookTimeoutSeconds, DefaultPostSessionHookTimeoutSeconds))
 	drainWait := int64(s.DrainWaitSeconds)
 
 	budget := stop + drainWait + hook + drainFixedOverheadSeconds

@@ -47,9 +47,10 @@ func secretInput(env *selfhostedv1alpha1.ClaudeEnvironment) RunnerPodInput {
 }
 
 const (
-	testSecretKey = "environment-secret"
-	testBaseDir   = "/workspace"
-	testCacheName = "cache"
+	testSecretKey      = "environment-secret"
+	testBaseDir        = "/workspace"
+	testCacheName      = "cache"
+	testHealthPortName = "health"
 )
 
 func TestRunnerPodTemplateRestricted(t *testing.T) {
@@ -107,7 +108,7 @@ func checkRunnerContainer(t *testing.T, c corev1.Container, ps corev1.PodSpec) {
 	if c.TerminationMessagePolicy != corev1.TerminationMessageFallbackToLogsOnError {
 		t.Fatal("termination message policy must fall back to logs")
 	}
-	if c.Ports[0].Name != "health" || c.Ports[0].ContainerPort != 8080 {
+	if c.Ports[0].Name != testHealthPortName || c.Ports[0].ContainerPort != 8080 {
 		t.Fatalf("health port wrong: %+v", c.Ports)
 	}
 	if c.ReadinessProbe.HTTPGet.Path != "/healthz" || c.LivenessProbe.HTTPGet.Path != "/healthz" {
@@ -190,5 +191,52 @@ func TestEffectiveGracePeriod(t *testing.T) {
 	env.Spec.Runner.TerminationGracePeriodSeconds = ptr.To[int64](30)
 	if s, short := EffectiveGracePeriod(env); s != 30 || !short {
 		t.Fatalf("too short: got %d %v", s, short)
+	}
+}
+
+func TestRunnerPodTemplateWorkspaceFromPVC(t *testing.T) {
+	in := secretInput(testEnv())
+	in.WorkspaceFromPVC = true
+	tmpl := RunnerPodTemplate(in)
+	for _, v := range tmpl.Spec.Volumes {
+		if v.Name == WorkspaceVolume {
+			t.Fatal("workspace emptyDir must be omitted when a PVC provides it")
+		}
+	}
+	var mounted bool
+	for _, m := range tmpl.Spec.Containers[0].VolumeMounts {
+		if m.Name == WorkspaceVolume && m.MountPath == testBaseDir {
+			mounted = true
+		}
+	}
+	if !mounted {
+		t.Fatal("workspace mount must remain")
+	}
+}
+
+func TestRunnerPodTemplateClientLabelEnv(t *testing.T) {
+	tmpl := RunnerPodTemplate(secretInput(testEnv()))
+	var found bool
+	for _, e := range tmpl.Spec.Containers[0].Env {
+		if e.Name == "SELF_HOSTED_RUNNER_CLIENT_LABEL" && e.ValueFrom != nil && e.ValueFrom.FieldRef.FieldPath == "metadata.name" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("client label must default to the pod name via the downward API")
+	}
+	env := testEnv()
+	env.Spec.Runner.Settings.ClientLabel = "fleet"
+	for _, e := range RunnerPodTemplate(secretInput(env)).Spec.Containers[0].Env {
+		if e.Name == "SELF_HOSTED_RUNNER_CLIENT_LABEL" {
+			t.Fatal("an explicit client label must not add the downward-API env var")
+		}
+	}
+}
+
+func TestRunnerPodTemplateProbePort(t *testing.T) {
+	c := RunnerPodTemplate(secretInput(testEnv())).Spec.Containers[0]
+	if c.ReadinessProbe.HTTPGet.Port.StrVal != testHealthPortName || c.LivenessProbe.HTTPGet.Port.StrVal != testHealthPortName {
+		t.Fatalf("probes must reference the named health port: %v %v", c.ReadinessProbe.HTTPGet.Port, c.LivenessProbe.HTTPGet.Port)
 	}
 }

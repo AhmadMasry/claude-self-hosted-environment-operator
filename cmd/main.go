@@ -59,60 +59,21 @@ func init() {
 
 // nolint:gocyclo
 func main() {
-	var metricsAddr string
-	var metricsCertPath, metricsCertName, metricsCertKey string
-	var webhookCertPath, webhookCertName, webhookCertKey string
-	var webhookPort int
-	var enableLeaderElection bool
-	var probeAddr string
-	var secureMetrics bool
-	var enableHTTP2 bool
-	var tlsOpts []func(*tls.Config)
-	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
-		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
-	flag.BoolVar(&secureMetrics, "metrics-secure", true,
-		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
-	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
-	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
-	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
-	flag.IntVar(&webhookPort, "webhook-port", 9443, "Port the webhook server listens on. "+
-		"Defaults to 9443. Set -1 to disable the webhook server.")
-	flag.StringVar(&metricsCertPath, "metrics-cert-path", "",
-		"The directory that contains the metrics server certificate.")
-	flag.StringVar(&metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
-	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
-	flag.BoolVar(&enableHTTP2, "enable-http2", false,
-		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	var logFormat, logLevel, watchNamespaces, hookImage, tracingEndpoint string
-	var tracingSampleRatio float64
-	flag.StringVar(&logFormat, "log-format", "json", "Log format: json or text.")
-	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug, info or error.")
-	flag.StringVar(&watchNamespaces, "watch-namespaces", "",
-		"Comma-separated namespaces to watch. Empty watches all namespaces.")
-	flag.StringVar(&hookImage, "hook-image", defaultHookImage(),
-		"Image that carries /spawn-runner for orchestrator pods. Defaults to $OPERATOR_IMAGE.")
-	flag.StringVar(&tracingEndpoint, "tracing-endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
-		"OTLP gRPC endpoint for traces; empty disables tracing")
-	flag.Float64Var(&tracingSampleRatio, "tracing-sample-ratio", 0.1,
-		"Fraction of root traces to sample when tracing is enabled")
-	opts := zap.Options{}
-	opts.BindFlags(flag.CommandLine)
+	o := registerFlags(flag.CommandLine)
 	flag.Parse()
-	lvl, err := parseLogLevel(logLevel)
+	var tlsOpts []func(*tls.Config)
+	opts := zap.Options{}
+	lvl, err := parseLogLevel(o.logLevel)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), zap.UseDevMode(logFormat == "text"), zap.Level(lvl)))
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), zap.UseDevMode(o.logFormat == "text"), zap.Level(lvl)))
 	setupLog.Info("Starting claude-selfhosted-operator",
-		"version", version, "logFormat", logFormat, "hookImage", hookImage)
+		"version", version, "logFormat", o.logFormat, "hookImage", o.hookImage)
 
 	ctx := ctrl.SetupSignalHandler()
-	shutdownTracing, err := telemetry.Init(ctx, tracingEndpoint, telemetry.ServiceManager, tracingSampleRatio)
+	shutdownTracing, err := telemetry.Init(ctx, o.tracingEndpoint, telemetry.ServiceManager, o.tracingSampleRatio)
 	if err != nil {
 		setupLog.Error(err, "Failed to set up tracing")
 		os.Exit(1)
@@ -136,7 +97,7 @@ func main() {
 		c.NextProtos = []string{"http/1.1"}
 	}
 
-	if !enableHTTP2 {
+	if !o.enableHTTP2 {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
@@ -144,16 +105,16 @@ func main() {
 	webhookTLSOpts := tlsOpts
 	webhookServerOptions := webhook.Options{
 		TLSOpts: webhookTLSOpts,
-		Port:    webhookPort,
+		Port:    o.webhookPort,
 	}
 
-	if len(webhookCertPath) > 0 {
+	if len(o.webhookCertPath) > 0 {
 		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
-			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
+			"webhook-cert-path", o.webhookCertPath, "webhook-cert-name", o.webhookCertName, "webhook-cert-key", o.webhookCertKey)
 
-		webhookServerOptions.CertDir = webhookCertPath
-		webhookServerOptions.CertName = webhookCertName
-		webhookServerOptions.KeyName = webhookCertKey
+		webhookServerOptions.CertDir = o.webhookCertPath
+		webhookServerOptions.CertName = o.webhookCertName
+		webhookServerOptions.KeyName = o.webhookCertKey
 	}
 
 	webhookServer := webhook.NewServer(webhookServerOptions)
@@ -163,12 +124,12 @@ func main() {
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.25.0/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
 	metricsServerOptions := metricsserver.Options{
-		BindAddress:   metricsAddr,
-		SecureServing: secureMetrics,
+		BindAddress:   o.metricsAddr,
+		SecureServing: o.secureMetrics,
 		TLSOpts:       tlsOpts,
 	}
 
-	if secureMetrics {
+	if o.secureMetrics {
 		// FilterProvider is used to protect the metrics endpoint with authn/authz.
 		// These configurations ensure that only authorized users and service accounts
 		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
@@ -184,13 +145,13 @@ func main() {
 	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use certificates
 	// managed by cert-manager for the metrics server.
 	// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml for TLS certification.
-	if len(metricsCertPath) > 0 {
+	if len(o.metricsCertPath) > 0 {
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
-			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
+			"metrics-cert-path", o.metricsCertPath, "metrics-cert-name", o.metricsCertName, "metrics-cert-key", o.metricsCertKey)
 
-		metricsServerOptions.CertDir = metricsCertPath
-		metricsServerOptions.CertName = metricsCertName
-		metricsServerOptions.KeyName = metricsCertKey
+		metricsServerOptions.CertDir = o.metricsCertPath
+		metricsServerOptions.CertName = o.metricsCertName
+		metricsServerOptions.KeyName = o.metricsCertKey
 	}
 
 	byObject, err := controller.CacheByObject()
@@ -201,13 +162,13 @@ func main() {
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
 		Cache: cache.Options{
-			DefaultNamespaces: parseWatchNamespaces(watchNamespaces),
+			DefaultNamespaces: parseWatchNamespaces(o.watchNamespaces),
 			ByObject:          byObject,
 		},
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
+		HealthProbeBindAddress: o.probeAddr,
+		LeaderElection:         o.enableLeaderElection,
 		LeaderElectionID:       "11cdeab4.claudecode.dev",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
@@ -231,7 +192,7 @@ func main() {
 		Scheme: mgr.GetScheme(),
 		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
 		Recorder:  mgr.GetEventRecorderFor("claude-selfhosted-operator"),
-		HookImage: hookImage,
+		HookImage: o.hookImage,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "claudeenvironment")
 		os.Exit(1)

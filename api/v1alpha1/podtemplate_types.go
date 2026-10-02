@@ -52,6 +52,7 @@ type PodTemplate struct {
 	// +kubebuilder:validation:MaxItems=32
 	// +optional
 	Volumes []Volume `json:"volumes,omitempty"`
+	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
 }

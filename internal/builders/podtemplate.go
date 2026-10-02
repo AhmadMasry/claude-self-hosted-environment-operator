@@ -31,7 +31,18 @@ const (
 	HomeMountPath       = "/home/runner"
 	TmpMountPath        = "/tmp"
 	WorkspaceVolume     = "workspace"
+
+	volEnvironmentSecret = "environment-secret"
+	volHome              = "home"
+	volTmp               = "tmp"
+	volHooks             = "hooks"
+	volWrapper           = "wrapper"
+	volHostConfig        = "host-config"
 )
+
+// ReservedMountPaths are the paths the operator mounts onto; users may not
+// mount over them or set baseDir to them.
+var ReservedMountPaths = []string{SecretMountPath, HomeMountPath, TmpMountPath}
 
 // RunnerPodInput is everything RunnerPodTemplate needs beyond the environment.
 type RunnerPodInput struct {
@@ -81,18 +92,18 @@ func RunnerPodTemplate(in RunnerPodInput) corev1.PodTemplateSpec {
 	annotations[selfhostedv1alpha1.AnnotationConfigHash] = in.ConfigHash
 
 	volumes := []corev1.Volume{
-		{Name: "environment-secret", VolumeSource: in.SecretVolume},
-		{Name: "home", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-		{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		{Name: volEnvironmentSecret, VolumeSource: in.SecretVolume},
+		{Name: volHome, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		{Name: volTmp, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 	}
 	if !in.WorkspaceFromPVC {
 		volumes = append(volumes, corev1.Volume{Name: WorkspaceVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
 	}
 	mounts := []corev1.VolumeMount{
-		{Name: "environment-secret", MountPath: SecretMountPath, ReadOnly: true},
+		{Name: volEnvironmentSecret, MountPath: SecretMountPath, ReadOnly: true},
 		{Name: WorkspaceVolume, MountPath: r.BaseDir},
-		{Name: "home", MountPath: HomeMountPath},
-		{Name: "tmp", MountPath: TmpMountPath},
+		{Name: volHome, MountPath: HomeMountPath},
+		{Name: volTmp, MountPath: TmpMountPath},
 	}
 	envVars := append([]corev1.EnvVar{}, r.Env...)
 	if r.Settings.ClientLabel == "" {
@@ -100,16 +111,16 @@ func RunnerPodTemplate(in RunnerPodInput) corev1.PodTemplateSpec {
 			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}})
 	}
 	if r.LifecycleHooks != nil {
-		volumes = append(volumes, configMapVolume("hooks", r.LifecycleHooks.Name, 0o555))
-		mounts = append(mounts, corev1.VolumeMount{Name: "hooks", MountPath: HooksMountPath, ReadOnly: true})
+		volumes = append(volumes, configMapVolume(volHooks, r.LifecycleHooks.Name, 0o555))
+		mounts = append(mounts, corev1.VolumeMount{Name: volHooks, MountPath: HooksMountPath, ReadOnly: true})
 	}
 	if r.WrapperScript != nil {
-		volumes = append(volumes, configMapVolume("wrapper", r.WrapperScript.Name, 0o555))
-		mounts = append(mounts, corev1.VolumeMount{Name: "wrapper", MountPath: WrapperMountPath, ReadOnly: true})
+		volumes = append(volumes, configMapVolume(volWrapper, r.WrapperScript.Name, 0o555))
+		mounts = append(mounts, corev1.VolumeMount{Name: volWrapper, MountPath: WrapperMountPath, ReadOnly: true})
 	}
 	if r.HostConfig != nil {
-		volumes = append(volumes, configMapVolume("host-config", r.HostConfig.Name, 0o444))
-		mounts = append(mounts, corev1.VolumeMount{Name: "host-config", MountPath: HostConfigMountPath, ReadOnly: true})
+		volumes = append(volumes, configMapVolume(volHostConfig, r.HostConfig.Name, 0o444))
+		mounts = append(mounts, corev1.VolumeMount{Name: volHostConfig, MountPath: HostConfigMountPath, ReadOnly: true})
 		envVars = append(envVars, corev1.EnvVar{Name: "SELF_HOSTED_RUNNER_HOST_CONFIG_DIR", Value: HostConfigMountPath})
 	}
 	for _, v := range pt.Volumes {

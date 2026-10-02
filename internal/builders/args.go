@@ -53,13 +53,13 @@ func RunnerArgs(r selfhostedv1alpha1.RunnerSpec, secretFile string) []string {
 	a = appendInt(a, "--drain-grace-sec", s.DrainGraceSeconds)
 	a = appendInt(a, "--kill-session-after-min", s.KillSessionAfterMinutes)
 	a = appendInt(a, "--release-idle-session-min", s.ReleaseIdleSessionMinutes)
-	if s.StartupTimeoutMinutes != nil && *s.StartupTimeoutMinutes != 15 {
+	if s.StartupTimeoutMinutes != nil && *s.StartupTimeoutMinutes != DefaultStartupTimeoutMinutes {
 		a = appendInt(a, "--startup-timeout-min", *s.StartupTimeoutMinutes)
 	}
-	if s.SessionStopGraceSeconds != nil && *s.SessionStopGraceSeconds != 5 {
+	if s.SessionStopGraceSeconds != nil && *s.SessionStopGraceSeconds != DefaultSessionStopGraceSeconds {
 		a = appendInt(a, "--session-stop-grace-sec", *s.SessionStopGraceSeconds)
 	}
-	if s.PostSessionHookTimeoutSeconds != nil && *s.PostSessionHookTimeoutSeconds != 60 {
+	if s.PostSessionHookTimeoutSeconds != nil && *s.PostSessionHookTimeoutSeconds != DefaultPostSessionHookTimeoutSeconds {
 		a = appendInt(a, "--post-session-hook-timeout-sec", *s.PostSessionHookTimeoutSeconds)
 	}
 	a = appendInt(a, "--exit-if-unused-min", s.ExitIfUnusedMinutes)

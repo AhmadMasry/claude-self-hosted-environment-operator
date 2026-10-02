@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -59,4 +60,63 @@ func parseLogLevel(s string) (zapcore.Level, error) {
 		return zapcore.ErrorLevel, nil
 	}
 	return 0, fmt.Errorf("unknown log level %q (debug, info, error)", s)
+}
+
+// options holds the manager's command-line flags.
+type options struct {
+	metricsAddr          string
+	metricsCertPath      string
+	metricsCertName      string
+	metricsCertKey       string
+	webhookCertPath      string
+	webhookCertName      string
+	webhookCertKey       string
+	webhookPort          int
+	enableLeaderElection bool
+	probeAddr            string
+	secureMetrics        bool
+	enableHTTP2          bool
+	logFormat            string
+	logLevel             string
+	watchNamespaces      string
+	hookImage            string
+	tracingEndpoint      string
+	tracingSampleRatio   float64
+}
+
+// registerFlags declares the manager's flags on fs and returns the options
+// they populate. The controller-runtime zap flags are deliberately absent;
+// logging is configured with --log-format and --log-level only.
+func registerFlags(fs *flag.FlagSet) *options {
+	o := &options{}
+	fs.StringVar(&o.metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
+		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
+	fs.StringVar(&o.probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	fs.BoolVar(&o.enableLeaderElection, "leader-elect", false,
+		"Enable leader election for controller manager. "+
+			"Enabling this will ensure there is only one active controller manager.")
+	fs.BoolVar(&o.secureMetrics, "metrics-secure", true,
+		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
+	fs.StringVar(&o.webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
+	fs.StringVar(&o.webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
+	fs.StringVar(&o.webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
+	fs.IntVar(&o.webhookPort, "webhook-port", 9443, "Port the webhook server listens on. "+
+		"Defaults to 9443. Set -1 to disable the webhook server.")
+	fs.StringVar(&o.metricsCertPath, "metrics-cert-path", "",
+		"The directory that contains the metrics server certificate.")
+	fs.StringVar(&o.metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
+	fs.StringVar(&o.metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
+	fs.BoolVar(&o.enableHTTP2, "enable-http2", false,
+		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	fs.StringVar(&o.logFormat, "log-format", "json", "Log format: json or text.")
+	fs.StringVar(&o.logLevel, "log-level", "info", "Log level: debug, info or error.")
+	fs.StringVar(&o.watchNamespaces, "watch-namespaces", "",
+		"Comma-separated namespaces to watch. Empty watches all namespaces.")
+	fs.StringVar(&o.hookImage, "hook-image", defaultHookImage(),
+		"Image that carries /spawn-runner for orchestrator pods. Defaults to $OPERATOR_IMAGE.")
+	fs.StringVar(&o.tracingEndpoint, "tracing-endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		"OTLP gRPC endpoint for traces; empty disables tracing")
+	fs.Float64Var(&o.tracingSampleRatio, "tracing-sample-ratio", 0.1,
+		"Fraction of root traces to sample when tracing is enabled")
+	return o
 }

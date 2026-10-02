@@ -119,10 +119,13 @@ type RunnerSettings struct {
 }
 
 // RunnerSpec describes the runner image and process.
+// +kubebuilder:validation:XValidation:rule="!(self.baseDir in ['/etc/claude','/home/runner','/tmp']) && !self.baseDir.startsWith('/etc/claude/')",message="baseDir must not be /etc/claude, /home/runner or /tmp"
+// +kubebuilder:validation:XValidation:rule="!has(self.podTemplate) || !has(self.podTemplate.volumeMounts) || !self.podTemplate.volumeMounts.exists(m, m.mountPath in ['/etc/claude','/home/runner','/tmp'] || m.mountPath.startsWith('/etc/claude/') || m.mountPath.startsWith('/home/runner/') || m.mountPath.startsWith('/tmp/'))",message="volumeMounts must not target /etc/claude, /home/runner or /tmp"
+// +kubebuilder:validation:XValidation:rule="!has(self.env) || !self.env.exists(e, e.name in ['SELF_HOSTED_RUNNER_HOST_CONFIG_DIR','SELF_HOSTED_RUNNER_CLIENT_LABEL','SELF_HOSTED_RUNNER_ENVIRONMENT_SECRET'])",message="env may not set operator-owned variables"
 type RunnerSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
-	// +kubebuilder:validation:XValidation:rule="self.contains('@sha256:') || (self.lastIndexOf(':') > self.lastIndexOf('/') && !self.endsWith(':latest'))",message="runner.image must carry a tag or digest and must not use :latest"
+	// +kubebuilder:validation:XValidation:rule="self.contains('@sha256:') ? size(self.substring(self.indexOf('@sha256:') + 8)) == 64 : (self.lastIndexOf(':') > self.lastIndexOf('/') && !self.endsWith(':') && !self.endsWith(':latest'))",message="runner.image must carry a tag or digest and must not use :latest"
 	Image string `json:"image"`
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=1
@@ -139,6 +142,7 @@ type RunnerSpec struct {
 	// +kubebuilder:validation:XValidation:rule="!self.exists(a, ['--environment-secret-file','--pool-secret-file','--capacity','--base-dir','--health-port','--hooks-dir','--exec-path'].exists(f, a == f || a.startsWith(f + '=')))",message="extraArgs may not set operator-owned flags"
 	// +optional
 	ExtraArgs []string `json:"extraArgs,omitempty"`
+	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
 	// +optional
@@ -194,7 +198,7 @@ type OrchestratorSpec struct {
 	// +kubebuilder:default=120
 	// +optional
 	ExpectedSpawnSeconds int32 `json:"expectedSpawnSeconds,omitempty"`
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=15
 	// +kubebuilder:default=60
 	// +optional
 	HookTimeoutSeconds int32 `json:"hookTimeoutSeconds,omitempty"`
