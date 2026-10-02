@@ -1,16 +1,25 @@
-# claude-selfhosted-operator
+# Claude Code self-hosted environment operator
 
-A Kubernetes operator that runs [Claude Code self-hosted environment](https://code.claude.com/docs/en/self-hosted-environments) runners for you.
-You declare a `ClaudeEnvironment` (short name `cenv`); the operator deploys and supervises the runner
-fleet, wires in your environment Secret, hooks and settings, drains runners safely on rollout, and reports
-health through status conditions and metrics.
+[![Lint](https://github.com/AhmadMasry/claude-self-hosted-environment-operator/actions/workflows/lint.yml/badge.svg)](https://github.com/AhmadMasry/claude-self-hosted-environment-operator/actions/workflows/lint.yml)
+[![Tests](https://github.com/AhmadMasry/claude-self-hosted-environment-operator/actions/workflows/test.yml/badge.svg)](https://github.com/AhmadMasry/claude-self-hosted-environment-operator/actions/workflows/test.yml)
+[![E2E](https://github.com/AhmadMasry/claude-self-hosted-environment-operator/actions/workflows/test-e2e.yml/badge.svg)](https://github.com/AhmadMasry/claude-self-hosted-environment-operator/actions/workflows/test-e2e.yml)
 
-API: `selfhosted.claudecode.dev/v1alpha1` (provisional until v1.0.0).
+A Kubernetes operator that runs [Claude Code self-hosted environments](https://code.claude.com/docs/en/self-hosted-environments)
+on your cluster. You create one `ClaudeEnvironment` per environment from
+claude.ai admin settings, point it at a runner image you build and a Secret
+holding the environment key, and the operator runs the fleet: a fixed set
+of runners, or an orchestrator that spawns one hardened pod per session.
+Every pod meets the Restricted Pod Security Standard by default.
 
-**Modes.** Fixed-fleet mode (`spec.fixed.replicas`) runs a standing fleet. On-demand mode
-(`spec.onDemand`) runs an orchestrator that spawns one runner pod per session; see
-[`examples/on-demand.yaml`](examples/on-demand.yaml) and [`docs/on-demand.md`](docs/on-demand.md).
-Give each on-demand environment its own namespace: its orchestrator can write any Secret in that namespace.
+Status: pre-release. The API is `v1alpha1` and the API group is provisional
+until the first tagged release.
+
+Install: kustomize installer (`dist/install.yaml` on each release) or the
+Helm chart (`oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator`).
+Docs: [quickstart](#quickstart) below, [on-demand mode](docs/on-demand.md),
+[hardening](docs/hardening.md), [metrics](docs/metrics.md),
+[upgrade](docs/upgrade.md), [testing](docs/testing.md),
+[troubleshooting](TROUBLESHOOTING.md).
 
 ## Quickstart
 
