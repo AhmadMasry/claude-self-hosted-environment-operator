@@ -1,0 +1,22 @@
+# Hooks and wrapper ConfigMaps for the e2e environment. They mount at
+# /etc/claude/hooks and /etc/claude/wrapper, nested inside the read-only
+# environment Secret volume at /etc/claude, as the README sample does.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: e2e-hooks
+  namespace: claude-e2e
+data:
+  post-session: |
+    #!/bin/sh
+    exit 0
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: e2e-wrapper
+  namespace: claude-e2e
+data:
+  wrap.sh: |
+    #!/bin/sh
+    exec "$@"

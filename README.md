@@ -28,10 +28,14 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
        docker build --build-arg CLAUDE_CODE_VERSION=<version> -t <registry>/claude-runner:<version> examples/runner-image
        docker push <registry>/claude-runner:<version>
 
-5. **Install the operator.** A Helm chart is planned; for now use kustomize from a checkout:
+5. **Build, push and install the operator.** No operator image is published and a Helm chart is planned;
+   for now build the image and deploy with kustomize from a checkout:
 
+       make docker-build docker-push IMG=<your-registry>/claude-selfhosted-operator:<tag>
        make install
-       make deploy IMG=<operator image>
+       make deploy IMG=<your-registry>/claude-selfhosted-operator:<tag>
+
+   On kind, replace `docker-push` with `kind load docker-image <your-registry>/claude-selfhosted-operator:<tag>`.
 
    The operator watches Secrets and ConfigMaps cluster-wide unless the manager runs with `--watch-namespaces`.
 

@@ -8,7 +8,8 @@ Anthropic publishes no runner image; build this one and push it to your registry
 
 Pin `CLAUDE_CODE_VERSION` to a specific release for reproducible builds. Use
 `--build-arg CLAUDE_ARCH=linux-arm64` on ARM nodes. Layer your toolchains on
-top; keep the non-root user and the pre-created `/workspace`, `/home/runner`
-and `/etc/claude/hooks` directories, because the operator runs the container
-with a read-only root filesystem and mounts emptyDirs over `/workspace`,
-`/home/runner` and `/tmp`.
+top; keep the non-root user and the pre-created `/workspace` and `/home/runner`
+directories, because the operator runs the container with a read-only root
+filesystem and mounts emptyDirs over `/workspace`, `/home/runner` and `/tmp`.
+Do not add anything under `/etc/claude`: the operator mounts the environment
+Secret there, with hooks, wrapper and host config nested inside it.

@@ -51,6 +51,9 @@ func fixedFleetSpecs() {
 			_, err = utils.Run(exec.Command("kubectl", "-n", e2eNamespace, "create", "secret", "generic",
 				"claude-env-secret", "--from-literal=environment-secret=ccenvkey_e2e"))
 			Expect(err).NotTo(HaveOccurred())
+			By("creating the hooks and wrapper ConfigMaps the environment mounts")
+			_, err = utils.Run(exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/fixed-fleet-configmaps.yaml"))
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		AfterAll(func() {
@@ -72,6 +75,13 @@ func fixedFleetSpecs() {
 				"-o", "jsonpath={.spec.template.spec.terminationGracePeriodSeconds}"))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(out)).To(Equal("80"))
+
+			By("checking the runner args point at the nested hooks and wrapper mounts the stub verified")
+			out, err = utils.Run(exec.Command("kubectl", "-n", e2eNamespace, "get", "deploy", deployName,
+				"-o", "jsonpath={.spec.template.spec.containers[0].args}"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(And(ContainSubstring(`"--hooks-dir","/etc/claude/hooks"`),
+				ContainSubstring(`"--exec-path","/etc/claude/wrapper/wrap.sh"`)))
 
 			out, err = utils.Run(exec.Command("kubectl", "-n", e2eNamespace, "get", "pods",
 				"-l", "selfhosted.claudecode.dev/environment=e2e", "-o", "jsonpath={.items[*].status.phase}"))

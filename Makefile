@@ -125,7 +125,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # make docker-build IMG=<img> BASE_IMAGE=docker.io/library/golang:1.26
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE)) -t ${IMG} .
+	$(CONTAINER_TOOL) build $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE)) --build-arg VERSION=$(VERSION) -t ${IMG} .
 
 STUB_IMG ?= example.com/claude-stub-runner:e2e
 

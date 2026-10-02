@@ -9,6 +9,11 @@ spec:
   runner:
     image: example.com/claude-stub-runner:e2e
     capacity: 1
+    lifecycleHooks:
+      name: e2e-hooks
+    wrapperScript:
+      name: e2e-wrapper
+      key: wrap.sh
     podTemplate:
       resources:
         requests: {cpu: 10m, memory: 32Mi}

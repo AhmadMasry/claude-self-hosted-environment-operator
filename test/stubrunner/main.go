@@ -15,8 +15,9 @@ limitations under the License.
 */
 
 // Command stubrunner stands in for the real runner in e2e tests. It accepts the
-// real runner's args, serves /healthz and /metrics on --health-port, and exits
-// 0 on SIGTERM. It never contacts Anthropic.
+// real runner's args, checks that the files the operator mounts are readable,
+// serves /healthz and /metrics on --health-port, and exits 0 on SIGTERM. It
+// never contacts Anthropic.
 package main
 
 import (
@@ -30,17 +31,47 @@ import (
 	"time"
 )
 
-func healthPort(args []string) string {
+// argValue returns the value following flag name, or def when it is absent.
+func argValue(args []string, name, def string) string {
 	for i, a := range args {
-		if a == "--health-port" && i+1 < len(args) {
+		if a == name && i+1 < len(args) {
 			return args[i+1]
 		}
 	}
-	return "8080"
+	return def
+}
+
+// checkMounts fails when the environment secret is unreadable or empty, or
+// when a hooks directory or wrapper script passed in args cannot be found.
+// It never prints file contents.
+func checkMounts(args []string) error {
+	secretFile := argValue(args, "--environment-secret-file", "")
+	if secretFile == "" {
+		return errors.New("--environment-secret-file is required")
+	}
+	b, err := os.ReadFile(secretFile)
+	if err != nil {
+		return fmt.Errorf("cannot read environment secret file: %w", err)
+	}
+	if len(b) == 0 {
+		return fmt.Errorf("environment secret file %s is empty", secretFile)
+	}
+	for _, flag := range []string{"--hooks-dir", "--exec-path"} {
+		if p := argValue(args, flag, ""); p != "" {
+			if _, err := os.Stat(p); err != nil {
+				return fmt.Errorf("%s: %w", flag, err)
+			}
+		}
+	}
+	return nil
 }
 
 func main() {
-	port := healthPort(os.Args[1:])
+	if err := checkMounts(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	port := argValue(os.Args[1:], "--health-port", "8080")
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
