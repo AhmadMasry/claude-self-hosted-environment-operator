@@ -16,25 +16,26 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
 
 1. **Create an environment in claude.ai.** Enable self-hosted environments, create one, and copy its
    environment key (see the [Claude docs](https://code.claude.com/docs/en/self-hosted-environments)).
-2. **Create the Secret.** Follow the commented steps at the top of the `ClaudeEnvironment` document in
+2. **Create the namespace** (Restricted Pod Security labels included):
+
+       kubectl apply -f examples/namespace.yaml
+
+3. **Create the Secret.** Follow the commented steps at the top of
    [`examples/fixed-fleet.yaml`](examples/fixed-fleet.yaml): the key goes in via a file with `umask 077`,
    never into a committed manifest. The Secret key name is `environment-secret`.
-3. **Build and push the runner image.** See [`examples/runner-image`](examples/runner-image/README.md):
+4. **Build and push the runner image.** See [`examples/runner-image`](examples/runner-image/README.md):
 
        docker build --build-arg CLAUDE_CODE_VERSION=<version> -t <registry>/claude-runner:<version> examples/runner-image
        docker push <registry>/claude-runner:<version>
 
-4. **Install the operator.** A Helm chart is planned; for now use kustomize from a checkout:
+5. **Install the operator.** A Helm chart is planned; for now use kustomize from a checkout:
 
        make install
        make deploy IMG=<operator image>
 
-5. **Apply the example.** Edit `runner.image` in `examples/fixed-fleet.yaml` to your image first. The file
-   creates the `claude-runners` namespace, so apply it before the Secret in step 2 if the namespace is new.
+6. **Apply the example.** Edit `runner.image` in `examples/fixed-fleet.yaml` to your image first.
 
        kubectl apply -f examples/hooks-configmap.yaml -f examples/fixed-fleet.yaml
-
-   (If the namespace does not exist yet, apply `examples/fixed-fleet.yaml` first, create the Secret, then apply the ConfigMap.)
 
 A minimal single-resource sample is in [`config/samples`](config/samples/selfhosted_v1alpha1_claudeenvironment.yaml).
 

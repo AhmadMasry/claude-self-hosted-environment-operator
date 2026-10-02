@@ -1,11 +1,3 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: claude-runners
-  labels:
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/enforce-version: latest
----
 # Create the Secret from the key copied in claude.ai admin settings, never from a committed file:
 #   (umask 077 && cat > ./environment-secret)   # paste, Enter, Ctrl-D
 #   kubectl -n claude-runners create secret generic claude-env-secret --from-file=environment-secret=./environment-secret
@@ -31,6 +23,7 @@ spec:
     lifecycleHooks:
       name: runner-hooks
     env:
+      # Keeps the Artifact tool off in sessions and drops the *.frame.claudeusercontent.com egress requirement.
       - name: CLAUDE_CODE_DISABLE_ARTIFACT
         value: "1"
     podTemplate:

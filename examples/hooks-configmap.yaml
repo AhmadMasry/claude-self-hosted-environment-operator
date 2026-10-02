@@ -6,9 +6,16 @@ metadata:
 data:
   post-session: |
     #!/bin/sh
-    # Runs after every session. Push a snapshot branch so uncommitted work survives.
-    set -eu
-    cd "${CLAUDE_RUNNER_CHECKOUT_PATH:-.}" 2>/dev/null || exit 0
-    git -c commit.gpgsign=false add -A >/dev/null 2>&1 || exit 0
-    git -c commit.gpgsign=false commit -qm "wip: snapshot from session ${CLAUDE_RUNNER_SESSION_ID:-unknown}" >/dev/null 2>&1 || exit 0
-    git push -q origin "HEAD:refs/heads/claude/snapshot-${CLAUDE_RUNNER_SESSION_UUID:-unknown}" >/dev/null 2>&1 || true
+    # Illustrative post-session hook: push a rescue branch per working tree so
+    # uncommitted work survives the runner's workspace teardown. Pushes with
+    # whatever git credentials the runner host has; review before production use.
+    set -u
+    IFS=':'
+    g() { git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c commit.gpgsign=false "$@"; }
+    for ws in ${CLAUDE_RUNNER_WORKSPACE_PATHS:-}; do
+      cd "$ws" 2>/dev/null || continue
+      [ -z "$(g status --porcelain 2>/dev/null)" ] && continue
+      g add -A
+      g commit -q -m "runner snapshot: ${CLAUDE_RUNNER_SESSION_ID:-unknown} (${CLAUDE_RUNNER_EXIT_REASON:-unknown})" || continue
+      g push -q origin "HEAD:refs/heads/rescue/${CLAUDE_RUNNER_SESSION_ID:-unknown}" || true
+    done
