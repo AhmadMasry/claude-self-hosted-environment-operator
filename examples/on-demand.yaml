@@ -19,7 +19,7 @@ spec:
       killSessionAfterMinutes: 240
       releaseIdleSessionMinutes: 30
       removeSessionState: true
-      exitIfUnusedMinutes: 15      # standby runners from minIdle reclaim themselves
+      exitIfUnusedMinutes: 15      # only matters with orchestrator.minIdle > 0: standby runners exit if unused
     lifecycleHooks:
       name: runner-hooks
     env:

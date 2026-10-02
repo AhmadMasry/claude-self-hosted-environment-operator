@@ -60,9 +60,9 @@ The list shows Mode, Ready, Replicas and Age. Conditions on `.status.conditions`
 |---|---|
 | `Ready` | The environment is serving as configured |
 | `SecretFound` | The environment Secret and its key exist (`SecretMissing`, `SecretKeyMissing`) |
-| `FleetAvailable` | Enough runners are available (on-demand: `OrchestratorUnavailable` when the orchestrator is not ready) |
+| `FleetAvailable` | Enough runners are available (on-demand: `OrchestratorUnavailable` when the orchestrator is not ready, `WorkloadApplyFailed` when applying the workload failed) |
 | `Progressing` | A rollout or scale change is under way |
-| `Degraded` | Something needs attention, for example `ConfigMapMissing`, `GracePeriodTooShort`, `RunnerFailedStart`, `HookImageUnset`, `WorkloadApplyFailed` |
+| `Degraded` | Something needs attention, for example `ConfigMapMissing`, `GracePeriodTooShort`, `RunnerFailedStart`, `HookImageUnset` |
 | `SecretOnRunners` | The Secret is mounted on runner pods; `False/OnDemandSecretOnOrchestrator` in on-demand mode |
 
 ## Development

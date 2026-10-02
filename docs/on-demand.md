@@ -37,7 +37,7 @@ The orchestrator runs the hook once per work order. In order:
 3. Create Secret `<orderID>-work-order` (key `jwt`), then the ClaudeRunner, and make the ClaudeRunner owner of the Secret.
 4. If the runner create fails with a non-retryable error, delete the Secret.
 
-Exit codes: `0` success or redelivered, `1` at capacity (retryable), `2` failure. The hook has a 45 second
+Exit codes: `0` success or redelivered, `1` retryable (at capacity, or a transient API or transport error), `2` non-retryable (the API rejected the request). The hook has a 45 second
 deadline and writes one JSON line to stdout with `ts`, `orderID`, `sessionID`, `attempt`, `outcome`,
 `exitCode`, `runner`, `warning`, `error`; token values are redacted. It reads `CLAUDE_OPERATOR_ENVIRONMENT`,
 `CLAUDE_OPERATOR_NAMESPACE` and `CLAUDE_OPERATOR_MAX_CONCURRENT_RUNNERS`. It never reads
