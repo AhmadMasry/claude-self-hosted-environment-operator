@@ -18,6 +18,7 @@ package hook
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -148,24 +149,18 @@ func Run(ctx context.Context, c client.Client, in Input, jwt []byte, traceparent
 		Warning: handOffSecret(ctx, c, runner, secretName)}
 }
 
-// handOffSecret makes the runner the Secret's controller owner. It returns a
-// warning, never an error: a missing Secret or failed patch is not fatal.
+// handOffSecret makes the runner the Secret's controller owner with a raw
+// merge patch, so the hook never needs read access to Secrets. It is
+// idempotent. It returns a warning, never an error: a Secret that is already
+// gone or a failed patch is not fatal.
 func handOffSecret(ctx context.Context, c client.Client, runner *selfhostedv1alpha1.ClaudeRunner, secretName string) string {
-	secret := &corev1.Secret{}
-	if err := c.Get(ctx, types.NamespacedName{Name: secretName, Namespace: runner.Namespace}, secret); err != nil {
-		if apierrors.IsNotFound(err) {
-			return ""
-		}
-		return "could not read the work-order Secret: " + err.Error()
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: runner.Namespace}}
+	ref := metav1.NewControllerRef(runner, selfhostedv1alpha1.GroupVersion.WithKind("ClaudeRunner"))
+	body, err := json.Marshal(map[string]any{"metadata": map[string]any{"ownerReferences": []metav1.OwnerReference{*ref}}})
+	if err != nil {
+		return "could not build the owner hand-off patch: " + err.Error()
 	}
-	for _, ref := range secret.OwnerReferences {
-		if ref.UID == runner.UID && ref.Kind == "ClaudeRunner" {
-			return ""
-		}
-	}
-	patch := client.MergeFrom(secret.DeepCopy())
-	secret.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(runner, selfhostedv1alpha1.GroupVersion.WithKind("ClaudeRunner"))}
-	if err := c.Patch(ctx, secret, patch); err != nil {
+	if err := c.Patch(ctx, secret, client.RawPatch(types.MergePatchType, body)); err != nil && !apierrors.IsNotFound(err) {
 		return "could not hand the work-order Secret to the ClaudeRunner: " + err.Error()
 	}
 	return ""
