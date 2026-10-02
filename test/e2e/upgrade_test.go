@@ -60,6 +60,9 @@ func upgradeSpecs() {
 			_, _ = utils.Run(exec.Command("kubectl", "create", "ns", upgradeNamespace))
 			_, err = utils.Run(exec.Command("kubectl", "label", "ns", upgradeNamespace, "pod-security.kubernetes.io/enforce=restricted", "--overwrite"))
 			Expect(err).NotTo(HaveOccurred())
+			By("confirming the previous CRD accepts a reserved-path volumeMount")
+			_, err = utils.Run(exec.Command("kubectl", "apply", "--dry-run=server", "-n", upgradeNamespace, "-f", testdataPath("invalid-env.yaml")))
+			Expect(err).NotTo(HaveOccurred(), "the previous revision must not carry the reserved-path rule")
 			_, err = utils.Run(exec.Command("kubectl", "create", "secret", "generic", "-n", upgradeNamespace,
 				"claude-env-secret", "--from-literal=environment-secret=ccenvkey_e2e"))
 			Expect(err).NotTo(HaveOccurred())
@@ -119,8 +122,9 @@ func upgradeSpecs() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(events)).To(BeEmpty())
 			By("asserting the new manager still rejects an invalid environment")
-			_, err = utils.Run(exec.Command("kubectl", "apply", "-n", upgradeNamespace, "-f", testdataPath("invalid-env.yaml")))
+			_, err = utils.Run(exec.Command("kubectl", "apply", "--dry-run=server", "-n", upgradeNamespace, "-f", testdataPath("invalid-env.yaml")))
 			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("volumeMounts must not target /etc/claude, /home/runner or /tmp"))
 		})
 	})
 }

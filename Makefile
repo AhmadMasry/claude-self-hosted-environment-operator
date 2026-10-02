@@ -92,7 +92,8 @@ test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expect
 	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
 	$(MAKE) cleanup-test-e2e
 
-UPGRADE_FROM ?= $(shell git merge-base origin/master HEAD 2>/dev/null || git rev-parse HEAD~1)
+# On a PR the merge-base with master is the previous revision; on a master push it equals HEAD, so use the previous commit.
+UPGRADE_FROM ?= $(shell b=$$(git merge-base origin/master HEAD 2>/dev/null || true); h=$$(git rev-parse HEAD); if [ -z "$$b" ] || [ "$$b" = "$$h" ]; then git rev-parse HEAD~1; else echo "$$b"; fi)
 .PHONY: test-e2e-upgrade
 test-e2e-upgrade: setup-test-e2e manifests generate fmt vet ## Run e2e including the upgrade specs from UPGRADE_FROM (default: merge-base with master).
 	hack/build-previous.sh $(UPGRADE_FROM) example.com/claude-selfhosted-operator:previous $(CURDIR)/bin/previous

@@ -7,7 +7,11 @@ spec:
   environmentSecretRef:
     name: claude-env-secret
   runner:
-    image: "nginx"
+    image: example.com/claude-stub-runner:e2e
     capacity: 1
+    podTemplate:
+      volumeMounts:
+        - name: scratch
+          mountPath: /etc/claude/x
   fixed:
     replicas: 1
