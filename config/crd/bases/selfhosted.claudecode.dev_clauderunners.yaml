@@ -62,13 +62,17 @@ spec:
                   Never an email.
                 type: string
               attempt:
+                description: Attempt is the delivery attempt from CLAUDE_RUNNER_ATTEMPT
+                  (0 when unset).
                 format: int32
                 minimum: 0
                 type: integer
               clientPlatform:
+                description: ClientPlatform is the client platform from CLAUDE_RUNNER_CLIENT_PLATFORM.
                 type: string
               environmentRef:
-                description: LocalObjectRef names an object in the same namespace.
+                description: EnvironmentRef names the on-demand ClaudeEnvironment
+                  that controls this runner.
                 properties:
                   name:
                     minLength: 1
@@ -77,17 +81,23 @@ spec:
                 - name
                 type: object
               orderID:
+                description: OrderID is the work order ID; the ClaudeRunner and its
+                  pod are named after it.
                 maxLength: 253
                 minLength: 1
                 type: string
               primaryRepoURL:
+                description: PrimaryRepoURL is the primary repository URL from CLAUDE_RUNNER_PRIMARY_REPO_URL.
                 type: string
               sessionID:
+                description: SessionID is the session ID from CLAUDE_RUNNER_SESSION_ID.
                 type: string
               sessionUUID:
+                description: SessionUUID is the session UUID from CLAUDE_RUNNER_SESSION_UUID.
                 type: string
               workOrderSecretRef:
-                description: LocalObjectRef names an object in the same namespace.
+                description: WorkOrderSecretRef names the Secret that holds the single-use
+                  work-order JWT.
                 properties:
                   name:
                     minLength: 1
@@ -109,6 +119,7 @@ spec:
             description: ClaudeRunnerStatus is derived from the runner pod.
             properties:
               conditions:
+                description: Conditions holds the Ready condition.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -168,15 +179,22 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               finishedAt:
+                description: FinishedAt is when the runner reached a terminal phase;
+                  the TTL counts from it.
                 format: date-time
                 type: string
               message:
+                description: Message is a redacted, human-readable detail for the
+                  current phase.
                 type: string
               observedGeneration:
+                description: ObservedGeneration is the generation the status was last
+                  computed from.
                 format: int64
                 type: integer
               phase:
-                description: RunnerPhase is the lifecycle phase of a spawned runner.
+                description: 'Phase is the runner''s lifecycle phase: Pending, Running,
+                  Succeeded or Failed.'
                 enum:
                 - Pending
                 - Running
@@ -184,10 +202,14 @@ spec:
                 - Failed
                 type: string
               podName:
+                description: PodName is the runner pod, set once the pod has been
+                  created.
                 type: string
               reason:
+                description: Reason is a CamelCase reason for the current phase.
                 type: string
               startedAt:
+                description: StartedAt is when the runner pod started.
                 format: date-time
                 type: string
             type: object

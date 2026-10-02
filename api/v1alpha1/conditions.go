@@ -36,7 +36,6 @@ const (
 	ReasonReconciling           = "Reconciling"
 	ReasonAsExpected            = "AsExpected"
 	ReasonFixedModeSecretOnPods = "FixedModeSecretOnPods"
-	ReasonUnsupportedMode       = "UnsupportedMode"
 
 	LabelEnvironment     = "selfhosted.claudecode.dev/environment"
 	LabelRole            = "selfhosted.claudecode.dev/role"
@@ -58,6 +57,8 @@ const (
 	ReasonEnvironmentMissing           = "EnvironmentMissing"
 	ReasonPodLost                      = "PodLost"
 	ReasonEnvironmentMismatch          = "EnvironmentMismatch"
+	ReasonRunnerSucceeded              = "RunnerSucceeded"
+	ReasonRunnerFailed                 = "RunnerFailed"
 	ReasonOrchestratorUnavailable      = "OrchestratorUnavailable"
 	ReasonOnDemandSecretOnOrchestrator = "OnDemandSecretOnOrchestrator"
 	ReasonHookImageUnset               = "HookImageUnset"

@@ -47,43 +47,59 @@ func (p RunnerPhase) IsTerminal() bool {
 // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec is immutable"
 // +kubebuilder:validation:XValidation:rule="self.workOrderSecretRef.name == self.orderID + '-work-order'",message="workOrderSecretRef.name must be <orderID>-work-order"
 type ClaudeRunnerSpec struct {
+	// EnvironmentRef names the on-demand ClaudeEnvironment that controls this runner.
 	EnvironmentRef LocalObjectRef `json:"environmentRef"`
+	// OrderID is the work order ID; the ClaudeRunner and its pod are named after it.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	OrderID string `json:"orderID"`
+	// SessionID is the session ID from CLAUDE_RUNNER_SESSION_ID.
 	// +optional
 	SessionID string `json:"sessionID,omitempty"`
+	// SessionUUID is the session UUID from CLAUDE_RUNNER_SESSION_UUID.
 	// +optional
 	SessionUUID string `json:"sessionUUID,omitempty"`
+	// Attempt is the delivery attempt from CLAUDE_RUNNER_ATTEMPT (0 when unset).
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	Attempt int32 `json:"attempt,omitempty"`
+	// ClientPlatform is the client platform from CLAUDE_RUNNER_CLIENT_PLATFORM.
 	// +optional
 	ClientPlatform string `json:"clientPlatform,omitempty"`
+	// PrimaryRepoURL is the primary repository URL from CLAUDE_RUNNER_PRIMARY_REPO_URL.
 	// +optional
 	PrimaryRepoURL string `json:"primaryRepoURL,omitempty"`
 	// AccountID is the tagged account ID of the session creator. Never an email.
 	// +optional
-	AccountID          string         `json:"accountID,omitempty"`
+	AccountID string `json:"accountID,omitempty"`
+	// WorkOrderSecretRef names the Secret that holds the single-use work-order JWT.
 	WorkOrderSecretRef LocalObjectRef `json:"workOrderSecretRef"`
 }
 
 // ClaudeRunnerStatus is derived from the runner pod.
 type ClaudeRunnerStatus struct {
+	// ObservedGeneration is the generation the status was last computed from.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// Phase is the runner's lifecycle phase: Pending, Running, Succeeded or Failed.
 	// +optional
 	Phase RunnerPhase `json:"phase,omitempty"`
+	// PodName is the runner pod, set once the pod has been created.
 	// +optional
 	PodName string `json:"podName,omitempty"`
+	// StartedAt is when the runner pod started.
 	// +optional
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+	// FinishedAt is when the runner reached a terminal phase; the TTL counts from it.
 	// +optional
 	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
+	// Reason is a CamelCase reason for the current phase.
 	// +optional
 	Reason string `json:"reason,omitempty"`
+	// Message is a redacted, human-readable detail for the current phase.
 	// +optional
 	Message string `json:"message,omitempty"`
+	// Conditions holds the Ready condition.
 	// +listType=map
 	// +listMapKey=type
 	// +optional

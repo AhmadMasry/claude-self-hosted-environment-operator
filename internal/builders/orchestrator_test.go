@@ -145,6 +145,11 @@ func TestOrchestratorDeployment(t *testing.T) {
 	if len(initCmd) != 1 || initCmd[0] != "/spawn-runner" {
 		t.Fatalf("init container must run the hook binary, not the image entrypoint: %v", initCmd)
 	}
+	initRes := ps.InitContainers[0].Resources
+	if initRes.Requests.Cpu().String() != "10m" || initRes.Requests.Memory().String() != "16Mi" ||
+		initRes.Limits.Cpu().String() != "50m" || initRes.Limits.Memory().String() != "32Mi" {
+		t.Fatalf("init container resources wrong: %+v", initRes)
+	}
 	initArgs := ps.InitContainers[0].Args
 	if len(initArgs) != 2 || initArgs[0] != "--install" || initArgs[1] != HookInstallDir {
 		t.Fatalf("init args wrong: %v", initArgs)

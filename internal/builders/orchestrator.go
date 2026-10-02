@@ -23,6 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -205,11 +206,15 @@ func orchestratorContainers(env *selfhostedv1alpha1.ClaudeEnvironment) []corev1.
 
 func orchestratorInitContainers(hookImage string) []corev1.Container {
 	return []corev1.Container{{
-		Name:            HookInitContainerName,
-		Image:           hookImage,
-		Command:         []string{HookBinaryPath},
-		Args:            []string{"--install", HookInstallDir},
-		VolumeMounts:    []corev1.VolumeMount{{Name: hookVolumeName, MountPath: HookInstallDir}},
+		Name:         HookInitContainerName,
+		Image:        hookImage,
+		Command:      []string{HookBinaryPath},
+		Args:         []string{"--install", HookInstallDir},
+		VolumeMounts: []corev1.VolumeMount{{Name: hookVolumeName, MountPath: HookInstallDir}},
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10m"), corev1.ResourceMemory: resource.MustParse("16Mi")},
+			Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m"), corev1.ResourceMemory: resource.MustParse("32Mi")},
+		},
 		SecurityContext: restrictedContainerSecurityContext(),
 	}}
 }

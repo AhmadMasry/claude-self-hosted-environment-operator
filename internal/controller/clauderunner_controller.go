@@ -172,7 +172,11 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, outcome)
 		runner.Status.FinishedAt = ph.FinishedAt
 		r.setReady(runner, metav1.ConditionFalse, ph.Reason, ph.Message)
-		r.Recorder.Event(runner, corev1.EventTypeNormal, ph.Reason, "runner finished: "+string(ph.Phase))
+		if ph.Phase == selfhostedv1alpha1.RunnerFailed {
+			r.Recorder.Event(runner, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonRunnerFailed, "runner finished: "+ph.Reason)
+		} else {
+			r.Recorder.Event(runner, corev1.EventTypeNormal, selfhostedv1alpha1.ReasonRunnerSucceeded, "runner finished: "+ph.Reason)
+		}
 		return r.expire(ctx, runner)
 	}
 }

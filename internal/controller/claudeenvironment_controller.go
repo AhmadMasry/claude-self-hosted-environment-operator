@@ -382,7 +382,7 @@ func (r *ClaudeEnvironmentReconciler) deleteOrchestratorObjects(ctx context.Cont
 // API error only: the workload objects reference the Secret by name and never
 // hold its value.
 func (r *ClaudeEnvironmentReconciler) applyFailed(env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass, kind string, err error) error {
-	msg := fmt.Sprintf("could not apply runner %s (%s): %s", kind, apierrors.ReasonForError(err), err.Error())
+	msg := fmt.Sprintf("could not apply %s (%s): %s", kind, apierrors.ReasonForError(err), err.Error())
 	pass.set(selfhostedv1alpha1.ConditionFleetAvailable, metav1.ConditionFalse, selfhostedv1alpha1.ReasonWorkloadApplyFailed, msg)
 	r.Recorder.Event(env, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonWorkloadApplyFailed, msg)
 	return err
