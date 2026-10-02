@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -65,6 +66,25 @@ type ClaudeEnvironmentReconciler struct {
 	// HookImage is the operator's own image, used by the init container that
 	// installs the spawn-runner hook into orchestrator pods.
 	HookImage string
+	// Clock is the time source; nil means time.Now.
+	Clock Clock
+
+	mu sync.RWMutex // guards HookImage after construction
+}
+
+func (r *ClaudeEnvironmentReconciler) now() time.Time { return tick(r.Clock) }
+
+// SetHookImage replaces the hook image at runtime; tests use it.
+func (r *ClaudeEnvironmentReconciler) SetHookImage(image string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.HookImage = image
+}
+
+func (r *ClaudeEnvironmentReconciler) hookImage() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.HookImage
 }
 
 // +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=claudeenvironments,verbs=get;list;watch;create;update;patch;delete
@@ -293,7 +313,7 @@ func (r *ClaudeEnvironmentReconciler) reconcileOnDemand(ctx context.Context, env
 		}
 	}
 
-	if r.HookImage == "" {
+	if r.hookImage() == "" {
 		msg := "operator has no hook image configured; set --hook-image or OPERATOR_IMAGE on the manager"
 		pass.set(selfhostedv1alpha1.ConditionFleetAvailable, metav1.ConditionFalse, selfhostedv1alpha1.ReasonHookImageUnset, msg)
 		pass.degrade(selfhostedv1alpha1.ReasonHookImageUnset, msg)
@@ -304,7 +324,7 @@ func (r *ClaudeEnvironmentReconciler) reconcileOnDemand(ctx context.Context, env
 	if err := r.applyOrchestratorRBAC(ctx, env, pass); err != nil {
 		return ctrl.Result{}, err
 	}
-	dep := builders.OrchestratorDeployment(env, builders.OrchestratorConfigHash(env, secret, r.HookImage), r.HookImage)
+	dep := builders.OrchestratorDeployment(env, builders.OrchestratorConfigHash(env, secret, r.hookImage()), r.hookImage())
 	if err := r.apply(ctx, env, dep); err != nil {
 		return ctrl.Result{}, r.applyFailed(env, pass, "Deployment", err)
 	}
@@ -394,7 +414,7 @@ func (r *ClaudeEnvironmentReconciler) checkRunnerPods(ctx context.Context, env *
 	if err := r.List(ctx, pods, client.InNamespace(env.Namespace), client.MatchingLabels(builders.RunnerSelectorLabels(env))); err != nil {
 		return err
 	}
-	if failed, msg := detectFailedStart(pods.Items, time.Now()); failed {
+	if failed, msg := detectFailedStart(pods.Items, r.now()); failed {
 		pass.degrade(selfhostedv1alpha1.ReasonRunnerFailedStart, msg)
 		r.Recorder.Event(env, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonRunnerFailedStart, msg)
 	}

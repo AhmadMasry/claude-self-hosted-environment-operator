@@ -20,7 +20,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -61,6 +63,27 @@ func TestControllers(t *testing.T) {
 
 	RunSpecs(t, "Controller Suite")
 }
+
+const testHookImage = "example.com/claude-selfhosted-operator:test"
+
+type testClock struct {
+	mu     sync.Mutex
+	offset time.Duration
+}
+
+func (c *testClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return time.Now().Add(c.offset)
+}
+
+func (c *testClock) Shift(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.offset = d
+}
+
+var clock = &testClock{}
 
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
@@ -103,14 +126,13 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 	envReconciler = &ClaudeEnvironmentReconciler{
-		Client: k8sManager.GetClient(), Scheme: k8sManager.GetScheme(),
+		Client: k8sManager.GetClient(), Scheme: k8sManager.GetScheme(), Clock: clock.Now, HookImage: testHookImage,
 		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
 		Recorder: k8sManager.GetEventRecorderFor("claude-selfhosted-operator-test"),
 	}
-	envReconciler.HookImage = "example.com/claude-selfhosted-operator:test"
 	Expect(envReconciler.SetupWithManager(k8sManager)).To(Succeed())
 	runnerReconciler = &ClaudeRunnerReconciler{
-		Client: k8sManager.GetClient(), Reader: k8sManager.GetAPIReader(), Scheme: k8sManager.GetScheme(),
+		Client: k8sManager.GetClient(), Reader: k8sManager.GetAPIReader(), Scheme: k8sManager.GetScheme(), Clock: clock.Now,
 		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
 		Recorder: k8sManager.GetEventRecorderFor("claude-selfhosted-operator-test"),
 	}

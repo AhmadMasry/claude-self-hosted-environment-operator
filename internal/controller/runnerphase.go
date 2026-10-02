@@ -27,9 +27,6 @@ import (
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
 )
 
-// nowFunc is swapped in tests to exercise time-based decisions.
-var nowFunc = time.Now
-
 type phaseResult struct {
 	Phase      selfhostedv1alpha1.RunnerPhase
 	Reason     string
@@ -39,7 +36,7 @@ type phaseResult struct {
 }
 
 // derivePhase maps a runner pod onto the ClaudeRunner lifecycle.
-func derivePhase(pod *corev1.Pod) phaseResult {
+func derivePhase(pod *corev1.Pod, now time.Time) phaseResult {
 	if pod == nil {
 		return phaseResult{Phase: selfhostedv1alpha1.RunnerPending, Reason: selfhostedv1alpha1.ReasonPodPending, Message: "pod not created yet"}
 	}
@@ -55,10 +52,10 @@ func derivePhase(pod *corev1.Pod) phaseResult {
 		res.Phase, res.Reason = selfhostedv1alpha1.RunnerRunning, selfhostedv1alpha1.ReasonPodRunning
 	case corev1.PodSucceeded:
 		res.Phase, res.Reason = selfhostedv1alpha1.RunnerSucceeded, selfhostedv1alpha1.ReasonPodSucceeded
-		res.FinishedAt = terminatedAt(cs)
+		res.FinishedAt = terminatedAt(cs, now)
 	case corev1.PodFailed:
 		res.Phase, res.Reason = selfhostedv1alpha1.RunnerFailed, selfhostedv1alpha1.ReasonPodFailed
-		res.FinishedAt = terminatedAt(cs)
+		res.FinishedAt = terminatedAt(cs, now)
 		if cs != nil && cs.State.Terminated != nil {
 			t := cs.State.Terminated
 			res.Message = truncate(redact(fmt.Sprintf("exit code %d (%s): %s", t.ExitCode, t.Reason, fatalLine(t.Message))))
@@ -66,9 +63,9 @@ func derivePhase(pod *corev1.Pod) phaseResult {
 			res.Message = "pod failed: " + pod.Status.Reason
 		}
 	case corev1.PodUnknown:
-		now := metav1.NewTime(nowFunc())
+		finished := metav1.NewTime(now)
 		res.Phase, res.Reason = selfhostedv1alpha1.RunnerFailed, selfhostedv1alpha1.ReasonPodFailed
-		res.Message, res.FinishedAt = "pod phase Unknown: node unreachable", &now
+		res.Message, res.FinishedAt = "pod phase Unknown: node unreachable", &finished
 	default: // Pending
 		res.Phase, res.Reason, res.StartedAt = selfhostedv1alpha1.RunnerPending, selfhostedv1alpha1.ReasonPodPending, nil
 		res.Message = "pod is pending"
@@ -84,11 +81,11 @@ func derivePhase(pod *corev1.Pod) phaseResult {
 	return res
 }
 
-func terminatedAt(cs *corev1.ContainerStatus) *metav1.Time {
+func terminatedAt(cs *corev1.ContainerStatus, now time.Time) *metav1.Time {
 	if cs != nil && cs.State.Terminated != nil && !cs.State.Terminated.FinishedAt.IsZero() {
 		t := cs.State.Terminated.FinishedAt
 		return &t
 	}
-	now := metav1.NewTime(nowFunc())
-	return &now
+	finished := metav1.NewTime(now)
+	return &finished
 }

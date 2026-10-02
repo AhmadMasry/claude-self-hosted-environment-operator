@@ -92,9 +92,8 @@ var _ = Describe("ClaudeEnvironment on-demand mode", func() {
 	It("degrades with HookImageUnset when the operator has no hook image", func() {
 		ns := newNamespace(ctx)
 		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
-		saved := envReconciler.HookImage
-		envReconciler.HookImage = ""
-		DeferCleanup(func() { envReconciler.HookImage = saved })
+		envReconciler.SetHookImage("")
+		DeferCleanup(func() { envReconciler.SetHookImage(testHookImage) })
 		env := onDemandEnvObj(ns)
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
 		key := client.ObjectKeyFromObject(env)

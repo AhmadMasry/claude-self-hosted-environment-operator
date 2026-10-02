@@ -155,8 +155,8 @@ var _ = Describe("ClaudeRunner controller", func() {
 		key := client.ObjectKeyFromObject(r)
 		Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerPending))
 
-		nowFunc = func() time.Time { return time.Now().Add(2 * time.Minute) }
-		DeferCleanup(func() { nowFunc = time.Now })
+		clock.Shift(2 * time.Minute)
+		DeferCleanup(func() { clock.Shift(0) })
 		Expect(k8sClient.Get(ctx, key, r)).To(Succeed())
 		r.Annotations = map[string]string{"test/poke": "1"}
 		Expect(k8sClient.Update(ctx, r)).To(Succeed())

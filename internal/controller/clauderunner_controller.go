@@ -54,7 +54,11 @@ type ClaudeRunnerReconciler struct {
 	Reader   client.Reader
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
+	// Clock is the time source; nil means time.Now.
+	Clock Clock
 }
+
+func (r *ClaudeRunnerReconciler) now() time.Time { return tick(r.Clock) }
 
 // +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=clauderunners,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=clauderunners/status,verbs=get;update;patch
@@ -136,7 +140,7 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 			return ctrl.Result{}, nil
 		}
 	}
-	ph := derivePhase(pod)
+	ph := derivePhase(pod, r.now())
 	runner.Status.PodName = runner.Name
 	runner.Status.Phase, runner.Status.Reason, runner.Status.Message = ph.Phase, ph.Reason, ph.Message
 	if ph.StartedAt != nil {
@@ -146,7 +150,7 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 	switch ph.Phase {
 	case selfhostedv1alpha1.RunnerPending:
 		deadline := runner.CreationTimestamp.Add(time.Duration(spawnSeconds(env)) * time.Second)
-		now := nowFunc()
+		now := r.now()
 		if !now.After(deadline) {
 			r.setReady(runner, metav1.ConditionFalse, ph.Reason, ph.Message)
 			return ctrl.Result{RequeueAfter: deadline.Sub(now) + time.Second}, nil
@@ -160,7 +164,7 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		return r.expire(ctx, runner)
 	case selfhostedv1alpha1.RunnerRunning:
 		if !wasRunning {
-			metrics.ObserveSpawn(runner.Namespace, runner.Spec.EnvironmentRef.Name, nowFunc().Sub(runner.CreationTimestamp.Time))
+			metrics.ObserveSpawn(runner.Namespace, runner.Spec.EnvironmentRef.Name, r.now().Sub(runner.CreationTimestamp.Time))
 		}
 		r.setReady(runner, metav1.ConditionTrue, ph.Reason, "")
 		return ctrl.Result{}, nil
@@ -211,7 +215,7 @@ func (r *ClaudeRunnerReconciler) awaitWorkOrder(ctx context.Context, env *selfho
 		return ctrl.Result{}, true, err
 	}
 	deadline := runner.CreationTimestamp.Add(time.Duration(spawnSeconds(env)) * time.Second)
-	if nowFunc().After(deadline) {
+	if r.now().After(deadline) {
 		r.fail(runner, selfhostedv1alpha1.ReasonWorkOrderMissing,
 			fmt.Sprintf("work-order Secret %q not found within %d seconds", name, spawnSeconds(env)))
 		return ctrl.Result{}, true, nil
@@ -268,7 +272,7 @@ func (r *ClaudeRunnerReconciler) existingPod(ctx context.Context, runner *selfho
 // expire deletes a terminal runner once its TTL has elapsed, or requeues for it.
 func (r *ClaudeRunnerReconciler) expire(ctx context.Context, runner *selfhostedv1alpha1.ClaudeRunner) (ctrl.Result, error) {
 	if runner.Status.FinishedAt == nil {
-		now := metav1.NewTime(nowFunc())
+		now := metav1.NewTime(r.now())
 		runner.Status.FinishedAt = &now
 	}
 	ttl := defaultRunnerTTL
@@ -277,7 +281,7 @@ func (r *ClaudeRunnerReconciler) expire(ctx context.Context, runner *selfhostedv
 		env.Spec.OnDemand != nil && env.Spec.OnDemand.RunnerTTLSecondsAfterFinished != nil {
 		ttl = time.Duration(*env.Spec.OnDemand.RunnerTTLSecondsAfterFinished) * time.Second
 	}
-	remaining := runner.Status.FinishedAt.Add(ttl).Sub(nowFunc())
+	remaining := runner.Status.FinishedAt.Add(ttl).Sub(r.now())
 	if remaining > 0 {
 		return ctrl.Result{RequeueAfter: remaining}, nil
 	}
@@ -305,7 +309,7 @@ func (r *ClaudeRunnerReconciler) finalize(ctx context.Context, runner *selfhoste
 func (r *ClaudeRunnerReconciler) fail(runner *selfhostedv1alpha1.ClaudeRunner, reason, msg string) {
 	runner.Status.Phase, runner.Status.Reason, runner.Status.Message = selfhostedv1alpha1.RunnerFailed, reason, msg
 	if runner.Status.FinishedAt == nil {
-		now := metav1.NewTime(nowFunc())
+		now := metav1.NewTime(r.now())
 		runner.Status.FinishedAt = &now
 	}
 	r.setReady(runner, metav1.ConditionFalse, reason, msg)

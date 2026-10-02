@@ -48,7 +48,7 @@ func TestDerivePhase(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := derivePhase(tc.pod)
+			got := derivePhase(tc.pod, time.Now())
 			if got.Phase != tc.phase || got.Reason != tc.reason {
 				t.Fatalf("got %s/%s want %s/%s", got.Phase, got.Reason, tc.phase, tc.reason)
 			}
