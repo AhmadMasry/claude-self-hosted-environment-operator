@@ -32,6 +32,7 @@ const (
 	ReasonRunnerFailedStart     = "RunnerFailedStart"
 	ReasonWorkloadAvailable     = "WorkloadAvailable"
 	ReasonWorkloadUnavailable   = "WorkloadUnavailable"
+	ReasonWorkloadApplyFailed   = "WorkloadApplyFailed"
 	ReasonReconciling           = "Reconciling"
 	ReasonAsExpected            = "AsExpected"
 	ReasonFixedModeSecretOnPods = "FixedModeSecretOnPods"

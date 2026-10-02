@@ -218,7 +218,7 @@ func (r *ClaudeEnvironmentReconciler) reconcileFixed(ctx context.Context, env *s
 	if env.Spec.Fixed.PersistentWorkspace != nil {
 		sts := builders.FixedStatefulSet(env, hash)
 		if err := r.apply(ctx, env, sts); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, r.applyFailed(env, pass, "StatefulSet", err)
 		}
 		if err := r.deleteIfOwned(ctx, env, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: sts.Name, Namespace: sts.Namespace}}); err != nil {
 			return ctrl.Result{}, err
@@ -228,7 +228,7 @@ func (r *ClaudeEnvironmentReconciler) reconcileFixed(ctx context.Context, env *s
 	} else {
 		dep := builders.FixedDeployment(env, hash)
 		if err := r.apply(ctx, env, dep); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, r.applyFailed(env, pass, "Deployment", err)
 		}
 		if err := r.deleteIfOwned(ctx, env, &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: dep.Name, Namespace: dep.Namespace}}); err != nil {
 			return ctrl.Result{}, err
@@ -251,6 +251,18 @@ func (r *ClaudeEnvironmentReconciler) reconcileFixed(ctx context.Context, env *s
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: resyncPeriod}, nil
+}
+
+// applyFailed marks the fleet unavailable when the runner workload could not be
+// applied, so a stale FleetAvailable=True never reports the new generation as
+// Ready. The error is returned for a backoff requeue. The message carries the
+// API error only: the workload objects reference the Secret by name and never
+// hold its value.
+func (r *ClaudeEnvironmentReconciler) applyFailed(env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass, kind string, err error) error {
+	msg := fmt.Sprintf("could not apply runner %s (%s): %s", kind, apierrors.ReasonForError(err), err.Error())
+	pass.set(selfhostedv1alpha1.ConditionFleetAvailable, metav1.ConditionFalse, selfhostedv1alpha1.ReasonWorkloadApplyFailed, msg)
+	r.Recorder.Event(env, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonWorkloadApplyFailed, msg)
+	return err
 }
 
 // checkRunnerPods flags a fleet whose runners exit right after starting.

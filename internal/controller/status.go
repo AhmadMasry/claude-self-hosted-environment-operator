@@ -54,6 +54,14 @@ func (p *statusPass) isTrue(t string) bool {
 	return meta.IsStatusConditionTrue(p.env.Status.Conditions, t)
 }
 
+// falseReason returns the reason of condition t, or fallback when t is unset.
+func (p *statusPass) falseReason(t, fallback string) string {
+	if c := meta.FindStatusCondition(p.env.Status.Conditions, t); c != nil {
+		return c.Reason
+	}
+	return fallback
+}
+
 // finish derives Degraded, Ready and Progressing from what the pass recorded.
 func (p *statusPass) finish() {
 	if len(p.degraded) > 0 {
@@ -78,9 +86,9 @@ func (p *statusPass) finish() {
 		if len(p.degraded) > 0 {
 			reason = p.degraded[0].reason
 		} else if !p.isTrue(selfhostedv1alpha1.ConditionSecretFound) {
-			reason = selfhostedv1alpha1.ReasonSecretMissing
+			reason = p.falseReason(selfhostedv1alpha1.ConditionSecretFound, selfhostedv1alpha1.ReasonSecretMissing)
 		} else if !p.isTrue(selfhostedv1alpha1.ConditionFleetAvailable) {
-			reason = selfhostedv1alpha1.ReasonWorkloadUnavailable
+			reason = p.falseReason(selfhostedv1alpha1.ConditionFleetAvailable, selfhostedv1alpha1.ReasonWorkloadUnavailable)
 		}
 		p.set(selfhostedv1alpha1.ConditionReady, metav1.ConditionFalse, reason, "")
 		p.set(selfhostedv1alpha1.ConditionProgressing, metav1.ConditionTrue, selfhostedv1alpha1.ReasonReconciling, "")

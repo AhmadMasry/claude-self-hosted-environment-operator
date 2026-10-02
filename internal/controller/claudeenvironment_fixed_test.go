@@ -151,6 +151,7 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
 		key := client.ObjectKeyFromObject(env)
 		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionSecretFound), timeout, interval).Should(haveReason(metav1.ConditionFalse, selfhostedv1alpha1.ReasonSecretKeyMissing))
+		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionReady), timeout, interval).Should(haveReason(metav1.ConditionFalse, selfhostedv1alpha1.ReasonSecretKeyMissing))
 		Consistently(func() error {
 			return k8sClient.Get(ctx, types.NamespacedName{Name: runnerName, Namespace: ns}, &appsv1.Deployment{})
 		}, 2*time.Second, interval).ShouldNot(Succeed())
@@ -242,6 +243,49 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		Eventually(func() error {
 			return k8sClient.Get(ctx, types.NamespacedName{Name: runnerName, Namespace: ns}, &appsv1.Deployment{})
 		}, timeout, interval).ShouldNot(Succeed())
+	})
+
+	It("reports WorkloadApplyFailed and not Ready when the StatefulSet cannot be applied", func() {
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
+		env := fixedEnv(ns)
+		env.Spec.Runner.Settings.LockToAccount = "user_123"
+		env.Spec.Fixed.PersistentWorkspace = &selfhostedv1alpha1.PersistentWorkspaceSpec{
+			VolumeClaimTemplate: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{
+					corev1.ResourceStorage: mustQuantity("10Gi")}}}}
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		key := client.ObjectKeyFromObject(env)
+
+		sts := &appsv1.StatefulSet{}
+		stsKey := types.NamespacedName{Name: runnerName, Namespace: ns}
+		Eventually(func() error { return k8sClient.Get(ctx, stsKey, sts) }, timeout, interval).Should(Succeed())
+		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionFleetAvailable), timeout, interval).ShouldNot(BeNil())
+
+		// Simulate the StatefulSet controller so the fleet is Ready before the change.
+		sts.Status.Replicas, sts.Status.ReadyReplicas, sts.Status.UpdatedReplicas = 2, 2, 2
+		sts.Status.ObservedGeneration = sts.Generation
+		Expect(k8sClient.Status().Update(ctx, sts)).To(Succeed())
+		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionReady), timeout, interval).Should(HaveField("Status", metav1.ConditionTrue))
+		Expect(k8sClient.Get(ctx, stsKey, sts)).To(Succeed())
+		generation := sts.Generation
+
+		// volumeClaimTemplates are immutable, so this apply is rejected.
+		Expect(k8sClient.Get(ctx, key, env)).To(Succeed())
+		env.Spec.Fixed.PersistentWorkspace.VolumeClaimTemplate.Resources.Requests[corev1.ResourceStorage] = mustQuantity("20Gi")
+		Expect(k8sClient.Update(ctx, env)).To(Succeed())
+
+		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionFleetAvailable), timeout, interval).Should(
+			And(haveReason(metav1.ConditionFalse, selfhostedv1alpha1.ReasonWorkloadApplyFailed),
+				HaveField("Message", ContainSubstring("StatefulSet"))))
+		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionReady), timeout, interval).Should(
+			haveReason(metav1.ConditionFalse, selfhostedv1alpha1.ReasonWorkloadApplyFailed))
+		got := &appsv1.StatefulSet{}
+		Expect(k8sClient.Get(ctx, stsKey, got)).To(Succeed())
+		Expect(got.Generation).To(Equal(generation))
+		storage := got.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[corev1.ResourceStorage]
+		Expect(storage.String()).To(Equal("10Gi"))
 	})
 
 	It("keeps a stable Degraded message and ResourceVersion with several missing ConfigMaps", func() {
