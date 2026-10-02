@@ -61,6 +61,7 @@ kubebuilder init --plugins go/v4 \
   --project-name claude-selfhosted-operator \
   --license apache2 --owner "Ahmad Masry"
 curl -fsSL https://www.apache.org/licenses/LICENSE-2.0.txt -o LICENSE
+echo '.superpowers/' >> .gitignore
 ```
 
 - [ ] **Step 3: Create the ClaudeEnvironment API and controller**
@@ -97,6 +98,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `api/v1alpha1/claudeenvironment_types.go` (replace scaffolded content)
 - Create: `api/v1alpha1/podtemplate_types.go`
 - Create: `api/v1alpha1/conditions.go`
+- Delete: `internal/controller/claudeenvironment_controller_test.go` (scaffolded placeholder; it creates an empty spec that the new CEL rules reject)
 - Test: `internal/controller/claudeenvironment_validation_test.go`
 
 **Interfaces:**
@@ -539,6 +541,12 @@ grep -c 'x-kubernetes-validations' config/crd/bases/selfhosted.claudecode.dev_cl
 Expected: a count of at least 5 and no controller-gen errors.
 
 - [ ] **Step 3: Write the failing validation tests**
+
+Remove the scaffolded placeholder test first; it is replaced by real tests here and in Task 7:
+
+```bash
+git rm internal/controller/claudeenvironment_controller_test.go
+```
 
 `internal/controller/claudeenvironment_validation_test.go`:
 
@@ -1729,7 +1737,6 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `internal/controller/claudeenvironment_controller.go` (replace scaffold body)
 - Create: `internal/controller/status.go`
 - Modify: `internal/controller/suite_test.go` (start a manager with the reconciler)
-- Delete: `internal/controller/claudeenvironment_controller_test.go` (scaffolded placeholder)
 - Test: `internal/controller/claudeenvironment_fixed_test.go`
 
 **Interfaces:**
@@ -1820,12 +1827,6 @@ func (p *statusPass) finish() {
 ```
 
 - [ ] **Step 3: Write the failing reconciler tests**
-
-Delete the scaffolded test:
-
-```bash
-git rm internal/controller/claudeenvironment_controller_test.go
-```
 
 Replace the body of `BeforeSuite` in `internal/controller/suite_test.go` after `k8sClient` is created (keep everything the scaffold already does for envtest start, scheme, and client) with a running manager:
 
@@ -3131,8 +3132,7 @@ spec:
       releaseIdleSessionMinutes: 30
       removeSessionState: true
     lifecycleHooks:
-      configMapRef:
-        name: runner-hooks
+      name: runner-hooks
     env:
       - name: CLAUDE_CODE_DISABLE_ARTIFACT
         value: "1"
