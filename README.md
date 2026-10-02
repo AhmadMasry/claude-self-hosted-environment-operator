@@ -7,8 +7,9 @@ health through status conditions and metrics.
 
 API: `selfhosted.claudecode.dev/v1alpha1` (provisional until v1.0.0).
 
-**Status.** Fixed-fleet mode (`spec.fixed.replicas`) works. On-demand mode is declared in the API but is
-coming in a later release; for now such a resource reports `Degraded` with reason `UnsupportedMode`.
+**Modes.** Fixed-fleet mode (`spec.fixed.replicas`) runs a standing fleet. On-demand mode
+(`spec.onDemand`) runs an orchestrator that spawns one runner pod per session; see
+[`examples/on-demand.yaml`](examples/on-demand.yaml) and [`docs/on-demand.md`](docs/on-demand.md).
 
 ## Quickstart
 
@@ -35,6 +36,9 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
        make install
        make deploy IMG=<your-registry>/claude-selfhosted-operator:<tag>
 
+   On-demand mode needs the manager to know its own image for the hook (`--hook-image`, default
+   `OPERATOR_IMAGE`); the kustomize manifests set it automatically from `IMG`.
+
    On kind, replace `docker-push` with `kind load docker-image <your-registry>/claude-selfhosted-operator:<tag>`.
 
    The operator watches Secrets and ConfigMaps cluster-wide unless the manager runs with `--watch-namespaces`.
@@ -56,10 +60,10 @@ The list shows Mode, Ready, Replicas and Age. Conditions on `.status.conditions`
 |---|---|
 | `Ready` | The environment is serving as configured |
 | `SecretFound` | The environment Secret and its key exist (`SecretMissing`, `SecretKeyMissing`) |
-| `FleetAvailable` | Enough runners are available |
+| `FleetAvailable` | Enough runners are available (on-demand: `OrchestratorUnavailable` when the orchestrator is not ready) |
 | `Progressing` | A rollout or scale change is under way |
-| `Degraded` | Something needs attention, for example `ConfigMapMissing`, `GracePeriodTooShort`, `RunnerFailedStart`, `UnsupportedMode` |
-| `SecretOnRunners` | The Secret is mounted on runner pods |
+| `Degraded` | Something needs attention, for example `ConfigMapMissing`, `GracePeriodTooShort`, `RunnerFailedStart`, `HookImageUnset`, `WorkloadApplyFailed` |
+| `SecretOnRunners` | The Secret is mounted on runner pods; `False/OnDemandSecretOnOrchestrator` in on-demand mode |
 
 ## Development
 

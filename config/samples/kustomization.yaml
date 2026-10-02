@@ -1,5 +1,4 @@
 ## Append samples of your project ##
 resources:
 - selfhosted_v1alpha1_claudeenvironment.yaml
-- selfhosted_v1alpha1_clauderunner.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

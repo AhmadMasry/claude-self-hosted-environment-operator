@@ -1,0 +1,44 @@
+# On-demand mode: the orchestrator holds the environment secret and spawns one
+# runner pod per session with a single-use work order. Requires the Secret
+# from examples/fixed-fleet.yaml's comment and the namespace from examples/namespace.yaml.
+apiVersion: selfhosted.claudecode.dev/v1alpha1
+kind: ClaudeEnvironment
+metadata:
+  name: platform
+  namespace: claude-runners
+spec:
+  environmentSecretRef:
+    name: claude-env-secret
+  runner:
+    image: registry.example.com/claude-runner:2.1.280
+    capacity: 1
+    settings:
+      configureGit: true
+      confineRepoSettings: enforce
+      drainWaitSeconds: 300
+      killSessionAfterMinutes: 240
+      releaseIdleSessionMinutes: 30
+      removeSessionState: true
+      exitIfUnusedMinutes: 15      # standby runners from minIdle reclaim themselves
+    lifecycleHooks:
+      name: runner-hooks
+    env:
+      # Keeps the Artifact tool off in sessions and drops the *.frame.claudeusercontent.com egress requirement.
+      - name: CLAUDE_CODE_DISABLE_ARTIFACT
+        value: "1"
+    podTemplate:
+      resources:
+        requests: {cpu: "1", memory: 4Gi}
+        limits: {memory: 8Gi}
+  onDemand:
+    orchestrator:
+      replicas: 2
+      expectedSpawnSeconds: 120
+      hookTimeoutSeconds: 60
+      minIdle: 0
+      podTemplate:
+        resources:
+          requests: {cpu: 100m, memory: 256Mi}
+          limits: {memory: 512Mi}
+    runnerTTLSecondsAfterFinished: 300
+    maxConcurrentRunners: 50
