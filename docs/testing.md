@@ -140,9 +140,13 @@ On a machine with Docker, kind, kubectl, envsubst, jq, git and the Claude Code C
 claude auth login                          # interactive, instead of the refresh token
 export CLAUDE_ENVIRONMENT_KEY=...          # read it from your secret store; do not type it into history
 export CLAUDE_ENVIRONMENT_ID=ccpool_...
-make real-session-test                     # optional: TEST_REPO=owner/name TEST_REF=branch
+make real-session-test IMG=example.com/claude-selfhosted-operator:real-e2e   # optional: TEST_REPO=owner/name TEST_REF=branch
 make cleanup-test-e2e                      # delete the kind cluster afterwards
+git checkout config/manager/kustomization.yaml   # `make deploy` rewrote the image
 ```
+
+Pass a non-`latest` `IMG`: the image is loaded into kind, and a `:latest` tag would make the kubelet try to
+pull it.
 
 `make real-session-test` creates or reuses the Makefile-owned kind cluster (`KIND_CLUSTER`), builds and loads
 the images, deploys the operator and runs the script. To run only the script against a cluster that already
