@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"cmp"
+	"slices"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -55,6 +57,9 @@ func (p *statusPass) isTrue(t string) bool {
 // finish derives Degraded, Ready and Progressing from what the pass recorded.
 func (p *statusPass) finish() {
 	if len(p.degraded) > 0 {
+		slices.SortFunc(p.degraded, func(a, b degradation) int {
+			return cmp.Or(strings.Compare(a.reason, b.reason), strings.Compare(a.message, b.message))
+		})
 		msgs := make([]string, 0, len(p.degraded))
 		for _, d := range p.degraded {
 			msgs = append(msgs, d.message)

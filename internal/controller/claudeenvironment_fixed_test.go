@@ -244,6 +244,32 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		}, timeout, interval).ShouldNot(Succeed())
 	})
 
+	It("keeps a stable Degraded message and ResourceVersion with several missing ConfigMaps", func() {
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
+		env := fixedEnv(ns)
+		env.Spec.Runner.LifecycleHooks = &selfhostedv1alpha1.ConfigMapRef{Name: hooksName}
+		env.Spec.Runner.HostConfig = &selfhostedv1alpha1.ConfigMapRef{Name: "cfg"}
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		key := client.ObjectKeyFromObject(env)
+		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionDegraded), timeout, interval).Should(haveReason(metav1.ConditionTrue, selfhostedv1alpha1.ReasonConfigMapMissing))
+
+		snapshot := func() (string, error) {
+			got := &selfhostedv1alpha1.ClaudeEnvironment{}
+			if err := k8sClient.Get(ctx, key, got); err != nil {
+				return "", err
+			}
+			c := meta.FindStatusCondition(got.Status.Conditions, selfhostedv1alpha1.ConditionDegraded)
+			if c == nil {
+				return "", fmt.Errorf("Degraded not set")
+			}
+			return c.Message + "|" + got.ResourceVersion, nil
+		}
+		var first string
+		Eventually(func() error { var err error; first, err = snapshot(); return err }, timeout, interval).Should(Succeed())
+		Consistently(snapshot, 3*time.Second, interval).Should(Equal(first))
+	})
+
 	It("marks onDemand as unsupported in this version", func() {
 		ns := newNamespace(ctx)
 		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())

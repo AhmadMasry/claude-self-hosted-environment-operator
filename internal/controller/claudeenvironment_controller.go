@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -33,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
@@ -65,7 +65,6 @@ type ClaudeEnvironmentReconciler struct {
 
 // Reconcile drives one ClaudeEnvironment towards its desired state.
 func (r *ClaudeEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := logf.FromContext(ctx).WithValues("environment", req.Name, "namespace", req.Namespace)
 	env := &selfhostedv1alpha1.ClaudeEnvironment{}
 	if err := r.Get(ctx, req.NamespacedName, env); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -84,11 +83,8 @@ func (r *ClaudeEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			if apierrors.IsConflict(uerr) {
 				return ctrl.Result{RequeueAfter: time.Second}, nil
 			}
-			return ctrl.Result{}, uerr
+			return ctrl.Result{}, client.IgnoreNotFound(uerr)
 		}
-	}
-	if err != nil {
-		log.Error(err, "reconcile failed")
 	}
 	return res, err
 }
@@ -165,7 +161,14 @@ func configMapRefs(r selfhostedv1alpha1.RunnerSpec) map[string]string {
 func (r *ClaudeEnvironmentReconciler) resolveConfigMaps(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) ([]*corev1.ConfigMap, bool, error) {
 	var out []*corev1.ConfigMap
 	ok := true
-	for name, requiredKey := range configMapRefs(env.Spec.Runner) {
+	refs := configMapRefs(env.Spec.Runner)
+	names := make([]string, 0, len(refs))
+	for n := range refs {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		requiredKey := refs[name]
 		cm := &corev1.ConfigMap{}
 		err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: env.Namespace}, cm)
 		switch {
