@@ -1,0 +1,44 @@
+{{- if .Values.admissionPolicy.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "claude-selfhosted-operator.resourceName" (dict "suffix" "orchestrator-runners" "context" $) }}
+spec:
+  failurePolicy: Fail
+  matchConditions:
+  - expression: request.userInfo.username.startsWith('system:serviceaccount:' + request.namespace
+      + ':') && request.userInfo.username.endsWith('-orchestrator') && request.userInfo.username.size()
+      > ('system:serviceaccount:' + request.namespace + ':').size() + '-orchestrator'.size()
+    name: orchestrator-service-account
+  - expression: authorizer.group('selfhosted.claudecode.dev').resource('claudeenvironments').namespace(request.namespace).name(request.userInfo.username.substring(('system:serviceaccount:'
+      + request.namespace + ':').size(), request.userInfo.username.size() - '-orchestrator'.size())).check('get').allowed()
+    name: bound-by-the-operator
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - selfhosted.claudecode.dev
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      resources:
+      - clauderunners
+  validations:
+  - expression: |-
+      object.spec.workOrderSecretRef.name == object.metadata.name + '-work-order' && has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(o,
+
+        o.apiVersion == 'selfhosted.claudecode.dev/v1alpha1' && o.kind == 'ClaudeEnvironment' &&
+        has(o.controller) && o.controller && o.name == variables.env &&
+        object.spec.environmentRef.name == o.name)
+    message: an orchestrator may only create ClaudeRunners owned by its own ClaudeEnvironment
+      that reference their own work order
+    reason: Forbidden
+  variables:
+  - expression: '''system:serviceaccount:'' + request.namespace + '':'''
+    name: prefix
+  - expression: 'request.userInfo.username.startsWith(variables.prefix) && request.userInfo.username.endsWith(''-orchestrator'')
+      && request.userInfo.username.size() > variables.prefix.size() + ''-orchestrator''.size()
+      ? request.userInfo.username.substring(variables.prefix.size(), request.userInfo.username.size()
+      - ''-orchestrator''.size()) : '''''
+    name: env
+{{- end }}

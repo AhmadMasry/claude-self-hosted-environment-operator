@@ -39,8 +39,17 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
        docker build --build-arg CLAUDE_CODE_VERSION=<version> -t <registry>/claude-runner:<version> examples/runner-image
        docker push <registry>/claude-runner:<version>
 
-5. **Build, push and install the operator.** No operator image is published and a Helm chart is planned;
-   for now build the image and deploy with kustomize from a checkout:
+5. **Install the operator.** With Helm, from a release:
+
+       helm install claude-selfhosted-operator oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator \
+         --namespace claude-selfhosted-operator-system --create-namespace
+       kubectl label namespace claude-selfhosted-operator-system pod-security.kubernetes.io/enforce=restricted
+
+   The chart's values (`dist/chart/values.yaml`) include `admissionPolicy.enabled` (needs Kubernetes 1.30;
+   set `false` on older clusters), `prometheus.enabled`, `watchNamespaces` and `tracing.endpoint`. If you
+   override `manager.image`, also set `manager.envOverrides.OPERATOR_IMAGE` to the same image for the hook.
+
+   Or build the image yourself and deploy with kustomize from a checkout:
 
        make docker-build docker-push IMG=<your-registry>/claude-selfhosted-operator:<tag>
        make install

@@ -1,0 +1,10 @@
+{{- if .Values.admissionPolicy.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "claude-selfhosted-operator.resourceName" (dict "suffix" "orchestrator-runners" "context" $) }}
+spec:
+  policyName: {{ include "claude-selfhosted-operator.resourceName" (dict "suffix" "orchestrator-runners" "context" $) }}
+  validationActions:
+  - Deny
+{{- end }}
