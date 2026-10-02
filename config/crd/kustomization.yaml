@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/selfhosted.claudecode.dev_claudeenvironments.yaml
+- bases/selfhosted.claudecode.dev_clauderunners.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

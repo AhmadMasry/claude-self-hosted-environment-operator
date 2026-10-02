@@ -22,6 +22,9 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the claude-selfhosted-operator itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- clauderunner_admin_role.yaml
+- clauderunner_editor_role.yaml
+- clauderunner_viewer_role.yaml
 - claudeenvironment_admin_role.yaml
 - claudeenvironment_editor_role.yaml
 - claudeenvironment_viewer_role.yaml

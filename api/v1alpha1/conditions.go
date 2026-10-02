@@ -46,4 +46,31 @@ const (
 	RoleOrchestrator     = "orchestrator"
 	AnnotationConfigHash = "selfhosted.claudecode.dev/config-hash"
 	FieldOwner           = "claude-selfhosted-operator"
+
+	ConditionRunnerReady = "Ready"
+
+	ReasonPodPending                   = "PodPending"
+	ReasonPodRunning                   = "PodRunning"
+	ReasonPodSucceeded                 = "PodSucceeded"
+	ReasonPodFailed                    = "PodFailed"
+	ReasonSpawnTimeout                 = "SpawnTimeout"
+	ReasonWorkOrderMissing             = "WorkOrderMissing"
+	ReasonEnvironmentMissing           = "EnvironmentMissing"
+	ReasonOrchestratorUnavailable      = "OrchestratorUnavailable"
+	ReasonOnDemandSecretOnOrchestrator = "OnDemandSecretOnOrchestrator"
+	ReasonHookImageUnset               = "HookImageUnset"
+	ReasonFleetAvailable               = "FleetAvailable"
+
+	LabelOrderID          = "selfhosted.claudecode.dev/order-id"
+	LabelSessionID        = "selfhosted.claudecode.dev/session-id"
+	AnnotationTraceparent = "selfhosted.claudecode.dev/traceparent"
+	RunnerFinalizer       = "selfhosted.claudecode.dev/runner-pod"
+
+	WorkOrderSecretKey    = "jwt"
+	WorkOrderSecretSuffix = "-work-order"
+
+	// Environment variables the operator sets on the orchestrator container for the hook.
+	EnvHookEnvironment          = "CLAUDE_OPERATOR_ENVIRONMENT"
+	EnvHookNamespace            = "CLAUDE_OPERATOR_NAMESPACE"
+	EnvHookMaxConcurrentRunners = "CLAUDE_OPERATOR_MAX_CONCURRENT_RUNNERS"
 )

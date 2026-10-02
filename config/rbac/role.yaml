@@ -38,6 +38,7 @@ rules:
   - selfhosted.claudecode.dev
   resources:
   - claudeenvironments
+  - clauderunners
   verbs:
   - create
   - delete
@@ -50,12 +51,14 @@ rules:
   - selfhosted.claudecode.dev
   resources:
   - claudeenvironments/finalizers
+  - clauderunners/finalizers
   verbs:
   - update
 - apiGroups:
   - selfhosted.claudecode.dev
   resources:
   - claudeenvironments/status
+  - clauderunners/status
   verbs:
   - get
   - patch
