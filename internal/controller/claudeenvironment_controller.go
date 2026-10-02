@@ -39,6 +39,7 @@ import (
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/metrics"
 )
 
 const (
@@ -68,7 +69,11 @@ type ClaudeEnvironmentReconciler struct {
 func (r *ClaudeEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	env := &selfhostedv1alpha1.ClaudeEnvironment{}
 	if err := r.Get(ctx, req.NamespacedName, env); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		if apierrors.IsNotFound(err) {
+			metrics.ForgetEnvironment(req.Namespace, req.Name)
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
 	}
 	if !env.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
@@ -87,6 +92,7 @@ func (r *ClaudeEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			return ctrl.Result{}, client.IgnoreNotFound(uerr)
 		}
 	}
+	metrics.RecordEnvironment(env)
 	return res, err
 }
 
