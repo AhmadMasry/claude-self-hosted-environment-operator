@@ -5,7 +5,8 @@
 #    policy is lost); both are re-emitted here from dist/install.yaml behind
 #    admissionPolicy.enabled (needs Kubernetes 1.30),
 #  - the runner/orchestrator PodMonitor behind prometheus.enabled,
-#  - the manager flags surfaced as values, and the chart-specific values.
+#  - the manager flags surfaced as values (and --hook-image), the chart-specific
+#    values, and removal of the plugin's unpinned workflow and install-helm.
 # Idempotent: safe to run on an already post-processed chart.
 set -euo pipefail
 chart=dist/chart
@@ -83,14 +84,40 @@ for f in "$chart"/templates/prometheus/*podmonitor*.yaml; do
   { echo '{{- if .Values.prometheus.enabled }}'; cat "$f"; echo '{{- end }}'; } > "$f.tmp" && mv "$f.tmp" "$f"
 done
 
-# Manager flags surfaced as values.
+# Manager flags surfaced as values. --hook-image reuses the container image
+# expression so the on-demand hook always matches the manager image.
 manager="$chart/templates/manager/manager.yaml"
-if ! grep -q 'tracing-endpoint' "$manager"; then
-  sed -i.bak '/- --health-probe-bind-address=/a\
-        - "--watch-namespaces={{ .Values.watchNamespaces }}"\
-        - "--tracing-endpoint={{ .Values.tracing.endpoint }}"\
-        - "--tracing-sample-ratio={{ .Values.tracing.sampleRatio }}"
-' "$manager" && rm -f "$manager.bak"
+if ! grep -q -- '--hook-image=' "$manager"; then
+  awk '
+    /^        image: "/ { img = $0; sub(/^        image: "/, "", img); sub(/"$/, "", img) }
+    { lines[++n] = $0 }
+    END {
+      for (i = 1; i <= n; i++) {
+        print lines[i]
+        if (lines[i] ~ /- --health-probe-bind-address=/) {
+          print "        - \"--hook-image=" img "\""
+          print "        - \"--watch-namespaces={{ .Values.watchNamespaces }}\""
+          print "        {{- with .Values.tracing.endpoint }}"
+          print "        - \"--tracing-endpoint={{ . }}\""
+          print "        {{- end }}"
+          print "        - \"--tracing-sample-ratio={{ .Values.tracing.sampleRatio }}\""
+        }
+      }
+    }' "$manager" > "$manager.tmp" && mv "$manager.tmp" "$manager"
+fi
+
+# OPERATOR_IMAGE is superseded by --hook-image above; drop the literal the
+# plugin copies from the installer so it cannot drift from manager.image.
+awk '
+  /^  env:$/ { getline n1; if (n1 ~ /^    - name: OPERATOR_IMAGE$/) { getline; print "  env: []"; next } print; print n1; next }
+  { print }
+' "$chart/values.yaml" > "$chart/values.yaml.tmp" && mv "$chart/values.yaml.tmp" "$chart/values.yaml"
+
+# Plugin side files: its kind-based chart workflow installs unpinned tools and
+# duplicates the lint in test.yml, and install-helm pipes curl into bash.
+rm -f .github/workflows/test-chart.yml
+if grep -q '^install-helm:' Makefile; then
+  sed -i.bak -e '/^\.PHONY: install-helm$/,/^$/d' -e 's/^helm-deploy: install-helm /helm-deploy: /' Makefile && rm -f Makefile.bak
 fi
 
 grep -q '^admissionPolicy:' "$chart/values.yaml" || cat >> "$chart/values.yaml" <<'EOV'
@@ -103,6 +130,6 @@ admissionPolicy:
 # Manager flags surfaced as values.
 watchNamespaces: ""   # comma-separated; empty watches all namespaces
 tracing:
-  endpoint: ""        # OTLP gRPC endpoint; empty disables tracing
+  endpoint: ""        # OTLP gRPC endpoint; empty falls back to $OTEL_EXPORTER_OTLP_ENDPOINT, else off
   sampleRatio: 0.1
 EOV

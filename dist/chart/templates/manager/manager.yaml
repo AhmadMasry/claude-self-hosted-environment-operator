@@ -84,8 +84,11 @@ spec:
         - --metrics-bind-address=0
         {{- end }}
         - --health-probe-bind-address=:{{ .Values.manager.healthProbe.port }}
+        - "--hook-image={{ .Values.manager.image.repository | default "controller" }}{{- if not (contains "@" (.Values.manager.image.repository | default "controller")) }}:{{ .Values.manager.image.tag | default .Chart.AppVersion }}{{- end }}"
         - "--watch-namespaces={{ .Values.watchNamespaces }}"
-        - "--tracing-endpoint={{ .Values.tracing.endpoint }}"
+        {{- with .Values.tracing.endpoint }}
+        - "--tracing-endpoint={{ . }}"
+        {{- end }}
         - "--tracing-sample-ratio={{ .Values.tracing.sampleRatio }}"
         {{- range .Values.manager.args }}
         - {{ tpl . $ }}

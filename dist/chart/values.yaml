@@ -36,9 +36,7 @@ manager:
 
   ## Environment variables
   ##
-  env:
-    - name: OPERATOR_IMAGE
-      value: ghcr.io/ahmadmasry/claude-self-hosted-environment-operator:0.0.0
+  env: []
 
   ## Env overrides (--set manager.envOverrides.VAR=value)
   ## Same name in env above: this value takes precedence.
@@ -219,5 +217,5 @@ admissionPolicy:
 # Manager flags surfaced as values.
 watchNamespaces: ""   # comma-separated; empty watches all namespaces
 tracing:
-  endpoint: ""        # OTLP gRPC endpoint; empty disables tracing
+  endpoint: ""        # OTLP gRPC endpoint; empty falls back to $OTEL_EXPORTER_OTLP_ENDPOINT, else off
   sampleRatio: 0.1

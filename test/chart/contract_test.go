@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -87,13 +88,33 @@ func find(objs []unstructured.Unstructured, kind, nameSuffix string) *unstructur
 	return nil
 }
 
-func envHas(c corev1.Container, name string) bool {
-	for _, e := range c.Env {
-		if e.Name == name && e.Value != "" {
-			return true
+func managerPod(t *testing.T, objs []unstructured.Unstructured) (corev1.PodSpec, corev1.Container) {
+	t.Helper()
+	d := find(objs, "Deployment", "controller-manager")
+	if d == nil {
+		t.Fatal("manager Deployment not rendered")
+	}
+	var dep appsv1.Deployment
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(d.Object, &dep); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range dep.Spec.Template.Spec.Containers {
+		if c.Name == "manager" {
+			return dep.Spec.Template.Spec, c
 		}
 	}
-	return false
+	t.Fatal("manager container not rendered")
+	return corev1.PodSpec{}, corev1.Container{}
+}
+
+// argValue returns the value of --flag=value in args.
+func argValue(args []string, flag string) (string, bool) {
+	for _, a := range args {
+		if v, ok := strings.CutPrefix(a, flag+"="); ok {
+			return v, true
+		}
+	}
+	return "", false
 }
 
 func TestChartRBACMatchesControllerGen(t *testing.T) {
@@ -120,43 +141,43 @@ func TestChartRBACMatchesControllerGen(t *testing.T) {
 }
 
 func TestChartManagerIsRestricted(t *testing.T) {
-	objs := render(t)
-	d := find(objs, "Deployment", "controller-manager")
-	if d == nil {
-		t.Fatal("manager Deployment not rendered")
-	}
-	var dep appsv1.Deployment
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(d.Object, &dep); err != nil {
-		t.Fatal(err)
-	}
-	ps := dep.Spec.Template.Spec
+	ps, mgr := managerPod(t, render(t))
 	psc := ps.SecurityContext
-	if psc == nil || psc.RunAsNonRoot == nil || !*psc.RunAsNonRoot || psc.SeccompProfile == nil {
-		t.Fatalf("pod security context not restricted: %+v", ps.SecurityContext)
+	if psc == nil || psc.RunAsNonRoot == nil || !*psc.RunAsNonRoot || psc.SeccompProfile == nil ||
+		(psc.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault &&
+			psc.SeccompProfile.Type != corev1.SeccompProfileTypeLocalhost) {
+		t.Fatalf("pod security context not restricted: %+v", psc)
 	}
-	sawManager := false
 	for _, c := range ps.Containers {
 		sc := c.SecurityContext
 		if sc == nil || sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation ||
-			sc.Capabilities == nil || len(sc.Capabilities.Drop) == 0 {
+			sc.Capabilities == nil || !slices.Contains(sc.Capabilities.Drop, corev1.Capability("ALL")) ||
+			sc.ReadOnlyRootFilesystem == nil || !*sc.ReadOnlyRootFilesystem {
 			t.Fatalf("container %s not restricted: %+v", c.Name, sc)
 		}
-		if c.Name != "manager" {
-			continue
-		}
-		sawManager = true
-		joined := strings.Join(c.Args, " ")
-		if !strings.Contains(joined, "--hook-image") && !envHas(c, "OPERATOR_IMAGE") {
-			t.Fatalf("manager must carry --hook-image or OPERATOR_IMAGE: args=%v env=%v", c.Args, c.Env)
-		}
-		for _, flag := range []string{"--watch-namespaces", "--tracing-endpoint"} {
-			if !strings.Contains(joined, flag) {
-				t.Fatalf("manager args must carry %s: %v", flag, c.Args)
-			}
-		}
 	}
-	if !sawManager {
-		t.Fatal("manager container not rendered")
+	if hook, ok := argValue(mgr.Args, "--hook-image"); !ok || hook != mgr.Image {
+		t.Fatalf("--hook-image must equal the manager image %q: %v", mgr.Image, mgr.Args)
+	}
+	if _, ok := argValue(mgr.Args, "--watch-namespaces"); !ok {
+		t.Fatalf("manager args must carry --watch-namespaces: %v", mgr.Args)
+	}
+	if _, ok := argValue(mgr.Args, "--tracing-endpoint"); ok {
+		t.Fatalf("--tracing-endpoint must be omitted when empty so OTEL_EXPORTER_OTLP_ENDPOINT applies: %v", mgr.Args)
+	}
+}
+
+func TestChartManagerFlagsFollowValues(t *testing.T) {
+	const endpoint = "otel-collector.observability:4317"
+	_, mgr := managerPod(t, render(t, "manager.image.tag=9.9.9", "tracing.endpoint="+endpoint))
+	if !strings.HasSuffix(mgr.Image, ":9.9.9") {
+		t.Fatalf("manager image did not follow manager.image.tag: %s", mgr.Image)
+	}
+	if hook, _ := argValue(mgr.Args, "--hook-image"); hook != mgr.Image {
+		t.Fatalf("--hook-image %q must follow the manager image %q", hook, mgr.Image)
+	}
+	if got, _ := argValue(mgr.Args, "--tracing-endpoint"); got != endpoint {
+		t.Fatalf("--tracing-endpoint = %q, want %q", got, endpoint)
 	}
 }
 

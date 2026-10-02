@@ -169,9 +169,8 @@ CHART_IMG ?= ghcr.io/ahmadmasry/claude-self-hosted-environment-operator:0.0.0
 .PHONY: helm-chart
 helm-chart: export IMG = $(CHART_IMG)
 helm-chart: manifests build-installer kubebuilder ## Regenerate dist/chart from the kustomize installer (IMG=... sets the default image).
-	"$(KUBEBUILDER)" edit --plugins=helm/v2-alpha --force
-	hack/chart-postprocess.sh
-	git checkout -- config/manager/kustomization.yaml
+	"$(KUBEBUILDER)" edit --plugins=helm/v2-alpha --force && hack/chart-postprocess.sh; \
+		status=$$?; git checkout -- config/manager/kustomization.yaml; exit $$status
 
 .PHONY: helm-lint
 helm-lint: ## Lint the chart.
@@ -310,15 +309,8 @@ HELM_CHART_DIR ?= dist/chart
 ## Additional arguments to pass to helm commands
 HELM_EXTRA_ARGS ?=
 
-.PHONY: install-helm
-install-helm: ## Install the latest version of Helm.
-	@command -v $(HELM) >/dev/null 2>&1 || { \
-		echo "Installing Helm..." && \
-		curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash; \
-	}
-
 .PHONY: helm-deploy
-helm-deploy: install-helm ## Deploy manager to the K8s cluster via Helm. Specify an image with IMG.
+helm-deploy: ## Deploy manager to the K8s cluster via Helm. Specify an image with IMG.
 	IMG="$(IMG)"; $(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART_DIR) \
 		--namespace $(HELM_NAMESPACE) \
 		--create-namespace \

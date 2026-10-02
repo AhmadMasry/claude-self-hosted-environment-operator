@@ -41,13 +41,14 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
 
 5. **Install the operator.** With Helm, from a release:
 
-       helm install claude-selfhosted-operator oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator \
-         --namespace claude-selfhosted-operator-system --create-namespace
+       kubectl create namespace claude-selfhosted-operator-system
        kubectl label namespace claude-selfhosted-operator-system pod-security.kubernetes.io/enforce=restricted
+       helm install claude-selfhosted-operator oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator \
+         --namespace claude-selfhosted-operator-system
 
    The chart's values (`dist/chart/values.yaml`) include `admissionPolicy.enabled` (needs Kubernetes 1.30;
-   set `false` on older clusters), `prometheus.enabled`, `watchNamespaces` and `tracing.endpoint`. If you
-   override `manager.image`, also set `manager.envOverrides.OPERATOR_IMAGE` to the same image for the hook.
+   set `false` on older clusters), `prometheus.enabled`, `watchNamespaces` and `tracing.endpoint`. The hook image
+   (`--hook-image`) follows `manager.image`.
 
    Or build the image yourself and deploy with kustomize from a checkout:
 
