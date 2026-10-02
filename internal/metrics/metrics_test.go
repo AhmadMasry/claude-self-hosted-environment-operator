@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -54,5 +55,36 @@ func TestRecordAndForget(t *testing.T) {
 	}
 	if n := testutil.CollectAndCount(fixedReplicas); n != 0 {
 		t.Fatalf("expected replica series removed, have %d", n)
+	}
+}
+
+func TestOnDemandMetrics(t *testing.T) {
+	env := &selfhostedv1alpha1.ClaudeEnvironment{ObjectMeta: metav1.ObjectMeta{Name: "od", Namespace: "n"}}
+	env.Spec.OnDemand = &selfhostedv1alpha1.OnDemandSpec{}
+	env.Status.OnDemand = &selfhostedv1alpha1.OnDemandStatus{PendingRunners: 2, RunningRunners: 5}
+	RecordEnvironment(env)
+	if v := testutil.ToFloat64(environmentRunners.WithLabelValues("n", "od", "pending")); v != 2 {
+		t.Fatalf("pending %v", v)
+	}
+	if v := testutil.ToFloat64(environmentRunners.WithLabelValues("n", "od", "running")); v != 5 {
+		t.Fatalf("running %v", v)
+	}
+	if n := testutil.CollectAndCount(fixedReplicas); n != 0 {
+		t.Fatalf("fixed series must not exist for an on-demand environment, have %d", n)
+	}
+
+	CountRunner("n", "od", OutcomeCreated)
+	CountRunner("n", "od", OutcomeSucceeded)
+	if v := testutil.ToFloat64(runnersTotal.WithLabelValues("n", "od", OutcomeCreated)); v != 1 {
+		t.Fatalf("created %v", v)
+	}
+	ObserveSpawn("n", "od", 12*time.Second)
+	if n := testutil.CollectAndCount(runnerSpawnDuration); n != 1 {
+		t.Fatalf("spawn histogram series %d", n)
+	}
+
+	ForgetEnvironment("n", "od")
+	if n := testutil.CollectAndCount(environmentRunners) + testutil.CollectAndCount(runnersTotal) + testutil.CollectAndCount(runnerSpawnDuration); n != 0 {
+		t.Fatalf("series must be removed after forget, have %d", n)
 	}
 }

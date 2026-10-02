@@ -84,11 +84,13 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	var logFormat, logLevel, watchNamespaces string
+	var logFormat, logLevel, watchNamespaces, hookImage string
 	flag.StringVar(&logFormat, "log-format", "json", "Log format: json or text.")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug, info or error.")
 	flag.StringVar(&watchNamespaces, "watch-namespaces", "",
 		"Comma-separated namespaces to watch. Empty watches all namespaces.")
+	flag.StringVar(&hookImage, "hook-image", defaultHookImage(),
+		"Image that carries /spawn-runner for orchestrator pods. Defaults to $OPERATOR_IMAGE.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -98,7 +100,8 @@ func main() {
 		os.Exit(2)
 	}
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), zap.UseDevMode(logFormat == "text"), zap.Level(lvl)))
-	setupLog.Info("Starting claude-selfhosted-operator", "version", version, "logFormat", logFormat)
+	setupLog.Info("Starting claude-selfhosted-operator",
+		"version", version, "logFormat", logFormat, "hookImage", hookImage)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -205,7 +208,8 @@ func main() {
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
-		Recorder: mgr.GetEventRecorderFor("claude-selfhosted-operator"),
+		Recorder:  mgr.GetEventRecorderFor("claude-selfhosted-operator"),
+		HookImage: hookImage,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "claudeenvironment")
 		os.Exit(1)
@@ -213,6 +217,8 @@ func main() {
 	if err := (&controller.ClaudeRunnerReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
+		Recorder: mgr.GetEventRecorderFor("claude-selfhosted-operator"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "clauderunner")
 		os.Exit(1)

@@ -18,6 +18,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"go.uber.org/zap/zapcore"
@@ -26,6 +27,10 @@ import (
 
 // version is set at build time with -ldflags "-X main.version=<semver>".
 var version = "dev"
+
+// defaultHookImage is the image that carries /spawn-runner; the manifests set
+// OPERATOR_IMAGE to the manager's own image.
+func defaultHookImage() string { return os.Getenv("OPERATOR_IMAGE") }
 
 // parseWatchNamespaces turns a comma-separated list into cache namespace
 // config. An empty list returns nil, which watches all namespaces.

@@ -35,6 +35,7 @@ import (
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/metrics"
 )
 
 const (
@@ -109,6 +110,7 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		return ctrl.Result{}, err
 	}
 
+	wasRunning := runner.Status.Phase == selfhostedv1alpha1.RunnerRunning
 	pod, err := r.ensurePod(ctx, env, runner)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -133,11 +135,20 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 			return ctrl.Result{}, err
 		}
 		r.fail(runner, selfhostedv1alpha1.ReasonSpawnTimeout, msg)
+		metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeSpawnTimeout)
 		return r.expire(ctx, runner)
 	case selfhostedv1alpha1.RunnerRunning:
+		if !wasRunning {
+			metrics.ObserveSpawn(runner.Namespace, runner.Spec.EnvironmentRef.Name, nowFunc().Sub(runner.CreationTimestamp.Time))
+		}
 		r.setReady(runner, metav1.ConditionTrue, ph.Reason, "")
 		return ctrl.Result{}, nil
 	default: // terminal
+		outcome := metrics.OutcomeFailed
+		if ph.Phase == selfhostedv1alpha1.RunnerSucceeded {
+			outcome = metrics.OutcomeSucceeded
+		}
+		metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, outcome)
 		runner.Status.FinishedAt = ph.FinishedAt
 		r.setReady(runner, metav1.ConditionFalse, ph.Reason, ph.Message)
 		r.Recorder.Event(runner, corev1.EventTypeNormal, ph.Reason, "runner finished: "+string(ph.Phase))
@@ -163,6 +174,7 @@ func (r *ClaudeRunnerReconciler) ensurePod(ctx context.Context, env *selfhostedv
 	if err := r.Create(ctx, pod); err != nil && !apierrors.IsAlreadyExists(err) {
 		return nil, err
 	}
+	metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeCreated)
 	r.Recorder.Event(runner, corev1.EventTypeNormal, "PodCreated", "created runner pod "+pod.Name)
 	return pod, nil
 }

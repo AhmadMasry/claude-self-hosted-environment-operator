@@ -35,3 +35,14 @@ func TestParseLogLevel(t *testing.T) {
 		t.Fatal("invalid level must error")
 	}
 }
+
+func TestHookImageDefault(t *testing.T) {
+	t.Setenv("OPERATOR_IMAGE", "ghcr.io/x/op:1")
+	if got := defaultHookImage(); got != "ghcr.io/x/op:1" {
+		t.Fatalf("got %q", got)
+	}
+	t.Setenv("OPERATOR_IMAGE", "")
+	if got := defaultHookImage(); got != "" {
+		t.Fatalf("got %q", got)
+	}
+}
