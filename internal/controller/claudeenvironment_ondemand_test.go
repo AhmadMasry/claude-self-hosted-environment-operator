@@ -106,6 +106,39 @@ var _ = Describe("ClaudeEnvironment on-demand mode", func() {
 		}, 2*time.Second, interval).Should(BeTrue())
 	})
 
+	It("warns once per degradation when two hold at the same time", func() {
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
+		envReconciler.SetHookImage("")
+		DeferCleanup(func() { envReconciler.SetHookImage(testHookImage) })
+		env := onDemandEnvObj(ns)
+		env.Spec.Runner.TerminationGracePeriodSeconds = ptr.To[int64](30)
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		key := client.ObjectKeyFromObject(env)
+		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionDegraded), timeout, interval).Should(
+			HaveField("Message", And(ContainSubstring("terminationGracePeriodSeconds"), ContainSubstring("hook image"))))
+
+		grace := eventCount(ctx, ns, selfhostedv1alpha1.ReasonGracePeriodTooShort)
+		hook := eventCount(ctx, ns, selfhostedv1alpha1.ReasonHookImageUnset)
+		Eventually(grace, timeout, interval).Should(Equal(int32(1)))
+		Eventually(hook, timeout, interval).Should(Equal(int32(1)))
+		poke(ctx, key, "1")
+		poke(ctx, key, "2")
+		Consistently(func() []int32 { g, _ := grace(); h, _ := hook(); return []int32{g, h} }, 3*time.Second, interval).
+			Should(Equal([]int32{1, 1}))
+
+		// Clearing one degradation and bringing it back warns exactly once more.
+		envReconciler.SetHookImage(testHookImage)
+		poke(ctx, key, "3")
+		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionDegraded), timeout, interval).Should(
+			HaveField("Message", Not(ContainSubstring("hook image"))))
+		envReconciler.SetHookImage("")
+		poke(ctx, key, "4")
+		Eventually(hook, timeout, interval).Should(Equal(int32(2)))
+		Consistently(func() []int32 { g, _ := grace(); h, _ := hook(); return []int32{g, h} }, 3*time.Second, interval).
+			Should(Equal([]int32{1, 2}))
+	})
+
 	It("counts runners by phase", func() {
 		ns := newNamespace(ctx)
 		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())

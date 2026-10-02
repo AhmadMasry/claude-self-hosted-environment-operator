@@ -29,6 +29,9 @@ import (
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 )
 
+// degradedSeparator joins the parts of the Degraded message.
+const degradedSeparator = "; "
+
 type degradation struct{ reason, message string }
 
 // statusPass accumulates condition changes for one reconcile and writes them
@@ -68,11 +71,14 @@ func (p *statusPass) degrade(reason, message string) {
 }
 
 // degradeOnce records the degradation and emits a Warning event only when
-// the Degraded condition was not already True with this reason. The event is
-// sent by emit after the status update succeeds.
+// the Degraded condition was not already True with this reason. The condition
+// carries only the first reason, so every active reason is read from the
+// message, where finish prefixes each part with its reason. The event is sent
+// by emit after the status update succeeds.
 func (p *statusPass) degradeOnce(rec record.EventRecorder, env *selfhostedv1alpha1.ClaudeEnvironment, reason, msg string) {
 	p.degrade(reason, msg)
-	if c := meta.FindStatusCondition(p.before, selfhostedv1alpha1.ConditionDegraded); c != nil && c.Status == metav1.ConditionTrue && c.Reason == reason {
+	if c := meta.FindStatusCondition(p.before, selfhostedv1alpha1.ConditionDegraded); c != nil && c.Status == metav1.ConditionTrue &&
+		(strings.HasPrefix(c.Message, reason+": ") || strings.Contains(c.Message, degradedSeparator+reason+": ")) {
 		return
 	}
 	p.warnings = append(p.warnings, warning{rec, env, reason, msg})
@@ -105,9 +111,9 @@ func (p *statusPass) finish() {
 		})
 		msgs := make([]string, 0, len(p.degraded))
 		for _, d := range p.degraded {
-			msgs = append(msgs, d.message)
+			msgs = append(msgs, d.reason+": "+d.message)
 		}
-		p.set(selfhostedv1alpha1.ConditionDegraded, metav1.ConditionTrue, p.degraded[0].reason, strings.Join(msgs, "; "))
+		p.set(selfhostedv1alpha1.ConditionDegraded, metav1.ConditionTrue, p.degraded[0].reason, strings.Join(msgs, degradedSeparator))
 	} else {
 		p.set(selfhostedv1alpha1.ConditionDegraded, metav1.ConditionFalse, selfhostedv1alpha1.ReasonAsExpected, "")
 	}
