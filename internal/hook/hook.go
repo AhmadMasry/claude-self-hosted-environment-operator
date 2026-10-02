@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -96,15 +97,15 @@ func Run(ctx context.Context, c client.Client, in Input, jwt []byte, traceparent
 	envRef := controllerRef(env, "ClaudeEnvironment")
 	labels := map[string]string{
 		selfhostedv1alpha1.LabelEnvironment: in.Environment,
-		selfhostedv1alpha1.LabelOrderID:     in.OrderID,
+		selfhostedv1alpha1.LabelOrderID:     selfhostedv1alpha1.LabelValue(in.OrderID),
 	}
 	if in.SessionID != "" {
-		labels[selfhostedv1alpha1.LabelSessionID] = in.SessionID
+		labels[selfhostedv1alpha1.LabelSessionID] = selfhostedv1alpha1.LabelValue(in.SessionID)
 	}
 
 	secretName := builders.WorkOrderSecretName(in.OrderID)
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: in.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{*envRef}},
+		ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: in.Namespace, Labels: maps.Clone(labels), OwnerReferences: []metav1.OwnerReference{*envRef}},
 		Type:       corev1.SecretTypeOpaque,
 		Data:       map[string][]byte{selfhostedv1alpha1.WorkOrderSecretKey: jwt},
 	}
@@ -113,7 +114,7 @@ func Run(ctx context.Context, c client.Client, in Input, jwt []byte, traceparent
 	}
 
 	runner := &selfhostedv1alpha1.ClaudeRunner{
-		ObjectMeta: metav1.ObjectMeta{Name: in.OrderID, Namespace: in.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{*envRef}},
+		ObjectMeta: metav1.ObjectMeta{Name: in.OrderID, Namespace: in.Namespace, Labels: maps.Clone(labels), OwnerReferences: []metav1.OwnerReference{*envRef}},
 		Spec: selfhostedv1alpha1.ClaudeRunnerSpec{
 			EnvironmentRef:     selfhostedv1alpha1.LocalObjectRef{Name: in.Environment},
 			OrderID:            in.OrderID,

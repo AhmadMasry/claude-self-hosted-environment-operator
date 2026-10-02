@@ -52,9 +52,9 @@ func OnDemandRunnerPod(env *selfhostedv1alpha1.ClaudeEnvironment, runner *selfho
 		SecretFile:    SecretMountPath + "/" + SecretFileName,
 		RestartPolicy: corev1.RestartPolicyNever,
 	})
-	tmpl.Labels[selfhostedv1alpha1.LabelOrderID] = runner.Spec.OrderID
+	tmpl.Labels[selfhostedv1alpha1.LabelOrderID] = selfhostedv1alpha1.LabelValue(runner.Spec.OrderID)
 	if runner.Spec.SessionID != "" {
-		tmpl.Labels[selfhostedv1alpha1.LabelSessionID] = runner.Spec.SessionID
+		tmpl.Labels[selfhostedv1alpha1.LabelSessionID] = selfhostedv1alpha1.LabelValue(runner.Spec.SessionID)
 	}
 	return &corev1.Pod{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},

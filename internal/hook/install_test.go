@@ -45,3 +45,23 @@ func TestInstallCopiesExecutable(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestInstallLeavesNoTempFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := Install(dir); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, ".spawn-runner-*")); len(left) != 0 {
+		t.Fatalf("temp files left behind: %v", left)
+	}
+}
+
+func TestInstallMissingDirFails(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing")
+	if err := Install(dir); err == nil {
+		t.Fatal("Install into a missing directory must fail")
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("Install must not create the directory: %v", err)
+	}
+}

@@ -40,6 +40,19 @@ func Install(dir string) error {
 	if err != nil {
 		return fmt.Errorf("create temp file in %s: %w", dir, err)
 	}
+	if err := writeExecutable(tmp, src); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), filepath.Join(dir, "spawn-runner")); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
+}
+
+// writeExecutable copies src into tmp, marks it 0555 and closes it.
+func writeExecutable(tmp *os.File, src io.Reader) error {
 	if _, err := io.Copy(tmp, src); err != nil {
 		_ = tmp.Close()
 		return err
@@ -48,8 +61,5 @@ func Install(dir string) error {
 		_ = tmp.Close()
 		return err
 	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), filepath.Join(dir, "spawn-runner"))
+	return tmp.Close()
 }

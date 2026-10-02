@@ -17,6 +17,7 @@ limitations under the License.
 package builders
 
 import (
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -114,5 +115,18 @@ func TestOnDemandRunnerPodPreWarmHasNoSessionLabel(t *testing.T) {
 	pod := OnDemandRunnerPod(onDemandEnv(), r, "h")
 	if _, ok := pod.Labels[selfhostedv1alpha1.LabelSessionID]; ok {
 		t.Fatal("pre-warming runners must not carry a session label")
+	}
+}
+
+func TestOnDemandRunnerPodLabelsLongIDs(t *testing.T) {
+	r := testRunner()
+	r.Spec.OrderID = strings.Repeat("o", 70)
+	r.Spec.SessionID = "session/with/slashes"
+	pod := OnDemandRunnerPod(onDemandEnv(), r, "h")
+	if got := pod.Labels[selfhostedv1alpha1.LabelOrderID]; got != selfhostedv1alpha1.LabelValue(r.Spec.OrderID) {
+		t.Fatalf("order label %q", got)
+	}
+	if got := pod.Labels[selfhostedv1alpha1.LabelSessionID]; got != selfhostedv1alpha1.LabelValue(r.Spec.SessionID) {
+		t.Fatalf("session label %q", got)
 	}
 }

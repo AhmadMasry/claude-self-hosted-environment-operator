@@ -292,3 +292,39 @@ func TestRunPatchFailureWarnsAndRedactsInLog(t *testing.T) {
 		t.Fatalf("warning must be logged redacted: %s", out)
 	}
 }
+
+func TestRedactsBareJWTHeader(t *testing.T) {
+	out := Redact("token eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9 rejected")
+	if strings.Contains(out, "eyJhbGci") || !strings.Contains(out, "[redacted]") {
+		t.Fatalf("a bare JWT header segment must be redacted: %q", out)
+	}
+}
+
+func TestRunLabelsSecretAndRunnerIndependently(t *testing.T) {
+	ctx := context.Background()
+	c := newClient(envObj())
+	in := input()
+	in.OrderID = strings.Repeat("o", 70)
+	if res := Run(ctx, c, in, []byte("j"), ""); res.ExitCode != ExitSubmitted {
+		t.Fatalf("got %+v", res)
+	}
+	want := map[string]string{
+		selfhostedv1alpha1.LabelEnvironment: testEnvName,
+		selfhostedv1alpha1.LabelOrderID:     selfhostedv1alpha1.LabelValue(in.OrderID),
+		selfhostedv1alpha1.LabelSessionID:   testSession,
+	}
+	runner := &selfhostedv1alpha1.ClaudeRunner{}
+	if err := c.Get(ctx, types.NamespacedName{Name: in.OrderID, Namespace: testNS}, runner); err != nil {
+		t.Fatal(err)
+	}
+	secret := &corev1.Secret{}
+	if err := c.Get(ctx, types.NamespacedName{Name: in.OrderID + "-work-order", Namespace: testNS}, secret); err != nil {
+		t.Fatal(err)
+	}
+	if !maps.Equal(runner.Labels, want) {
+		t.Fatalf("runner labels %v, want %v", runner.Labels, want)
+	}
+	if !maps.Equal(secret.Labels, want) {
+		t.Fatalf("secret labels %v, want %v", secret.Labels, want)
+	}
+}
