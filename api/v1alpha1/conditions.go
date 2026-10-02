@@ -78,4 +78,5 @@ const (
 	EnvHookEnvironment          = "CLAUDE_OPERATOR_ENVIRONMENT"
 	EnvHookNamespace            = "CLAUDE_OPERATOR_NAMESPACE"
 	EnvHookMaxConcurrentRunners = "CLAUDE_OPERATOR_MAX_CONCURRENT_RUNNERS"
+	EnvHookTimeoutSeconds       = "CLAUDE_OPERATOR_HOOK_TIMEOUT_SECONDS"
 )

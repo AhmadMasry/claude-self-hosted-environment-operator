@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -41,10 +40,6 @@ const (
 	ExitSubmitted    = 0
 	ExitRetryable    = 1
 	ExitNonRetryable = 2
-
-	// Timeout bounds one hook run well inside the orchestrator's default
-	// --hook-timeout of 60 seconds so the hook is never killed mid-create.
-	Timeout = 45 * time.Second
 )
 
 // Result is the hook's outcome.

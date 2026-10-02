@@ -17,6 +17,8 @@ limitations under the License.
 package builders
 
 import (
+	"slices"
+	"strconv"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -156,6 +158,10 @@ func TestOrchestratorDeployment(t *testing.T) {
 	}
 	checkOrchestratorContainer(t, ps)
 	checkOrchestratorMountsAndSecurity(t, ps)
+	o := env.Spec.OnDemand.Orchestrator
+	if !slices.Contains(ps.Containers[0].Env, corev1.EnvVar{Name: selfhostedv1alpha1.EnvHookTimeoutSeconds, Value: strconv.Itoa(int(o.HookTimeoutSeconds))}) {
+		t.Fatalf("hook timeout env missing: %+v", ps.Containers[0].Env)
+	}
 
 	env.Spec.OnDemand.Orchestrator.Image = "r:orch"
 	if OrchestratorDeployment(env, "h", "op").Spec.Template.Spec.Containers[0].Image != "r:orch" {

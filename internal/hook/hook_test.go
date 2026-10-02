@@ -23,6 +23,7 @@ import (
 	"maps"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -84,6 +85,23 @@ func TestParseEnv(t *testing.T) {
 	env["CLAUDE_RUNNER_ATTEMPT"] = ""
 	if in, err := ParseEnv(func(k string) string { return env[k] }); err != nil || in.Attempt != 0 {
 		t.Fatalf("empty attempt must default to 0: %+v %v", in, err)
+	}
+	if in.HookTimeoutSeconds != 60 {
+		t.Fatalf("absent hook timeout must default to 60: %d", in.HookTimeoutSeconds)
+	}
+	env[selfhostedv1alpha1.EnvHookTimeoutSeconds] = "45"
+	if in, err := ParseEnv(func(k string) string { return env[k] }); err != nil || in.HookTimeoutSeconds != 45 {
+		t.Fatalf("hook timeout must be parsed: %+v %v", in, err)
+	}
+}
+
+func TestDeadline(t *testing.T) {
+	cases := map[int]time.Duration{0: 50 * time.Second, 60: 50 * time.Second, 15: 5 * time.Second, 12: 5 * time.Second, 120: 110 * time.Second}
+	for timeout, want := range cases {
+		in := Input{HookTimeoutSeconds: timeout}
+		if got := in.Deadline(); got != want {
+			t.Fatalf("timeout %d: got %v want %v", timeout, got, want)
+		}
 	}
 }
 

@@ -68,7 +68,7 @@ func runHook() int {
 		fmt.Fprintln(os.Stderr, "error: work-order file is missing or empty")
 		return hook.ExitNonRetryable
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), hook.Timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), in.Deadline())
 	defer cancel()
 
 	cfg, err := ctrl.GetConfig()

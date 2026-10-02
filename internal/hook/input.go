@@ -19,6 +19,7 @@ package hook
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 )
@@ -37,6 +38,20 @@ type Input struct {
 	Environment          string
 	Namespace            string
 	MaxConcurrentRunners int
+	HookTimeoutSeconds   int
+}
+
+// defaultHookTimeoutSeconds is the orchestrator's --hook-timeout default.
+const defaultHookTimeoutSeconds = 60
+
+// Deadline is the context budget for one run: the orchestrator's hook
+// timeout minus a margin for process start and exit, never below 5 seconds.
+func (in Input) Deadline() time.Duration {
+	t := in.HookTimeoutSeconds
+	if t <= 0 {
+		t = defaultHookTimeoutSeconds
+	}
+	return max(time.Duration(t)*time.Second-10*time.Second, 5*time.Second)
 }
 
 // ParseEnv reads the product's hook variables plus the operator's own.
@@ -75,6 +90,16 @@ func ParseEnv(getenv func(string) string) (Input, error) {
 			return Input{}, fmt.Errorf("%s is not an integer: %w", selfhostedv1alpha1.EnvHookMaxConcurrentRunners, err)
 		}
 		in.MaxConcurrentRunners = int(n)
+	}
+	in.HookTimeoutSeconds = defaultHookTimeoutSeconds
+	if s := getenv(selfhostedv1alpha1.EnvHookTimeoutSeconds); s != "" {
+		n, err := strconv.ParseInt(s, 10, 32)
+		if err != nil {
+			return Input{}, fmt.Errorf("%s is not an integer: %w", selfhostedv1alpha1.EnvHookTimeoutSeconds, err)
+		}
+		if n > 0 {
+			in.HookTimeoutSeconds = int(n)
+		}
 	}
 	return in, nil
 }

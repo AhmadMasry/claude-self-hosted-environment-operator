@@ -156,13 +156,14 @@ func orchestratorVolumes(env *selfhostedv1alpha1.ClaudeEnvironment) []corev1.Vol
 
 func orchestratorEnv(env *selfhostedv1alpha1.ClaudeEnvironment) []corev1.EnvVar {
 	o := env.Spec.OnDemand.Orchestrator
-	envVars := make([]corev1.EnvVar, 0, 3+len(o.Env))
+	envVars := make([]corev1.EnvVar, 0, 4+len(o.Env))
 	envVars = append(envVars,
 		corev1.EnvVar{Name: selfhostedv1alpha1.EnvHookEnvironment, Value: env.Name},
 		corev1.EnvVar{Name: selfhostedv1alpha1.EnvHookNamespace, ValueFrom: &corev1.EnvVarSource{
 			FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}}},
 		corev1.EnvVar{Name: selfhostedv1alpha1.EnvHookMaxConcurrentRunners,
 			Value: strconv.Itoa(int(env.Spec.OnDemand.MaxConcurrentRunners))},
+		corev1.EnvVar{Name: selfhostedv1alpha1.EnvHookTimeoutSeconds, Value: strconv.Itoa(int(o.HookTimeoutSeconds))},
 	)
 	return append(envVars, o.Env...)
 }
