@@ -127,6 +127,12 @@ run: manifests generate fmt vet ## Run a controller from your host.
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE)) -t ${IMG} .
 
+STUB_IMG ?= example.com/claude-stub-runner:e2e
+
+.PHONY: stub-image
+stub-image: ## Build the e2e stub runner image.
+	$(CONTAINER_TOOL) build -t $(STUB_IMG) -f test/stubrunner/Dockerfile .
+
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}

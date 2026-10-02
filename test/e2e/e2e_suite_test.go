@@ -31,6 +31,9 @@ import (
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/test/utils"
 )
 
+// stubImage is the stub runner image used in place of the real runner.
+const stubImage = "example.com/claude-stub-runner:e2e"
+
 var (
 	// managerImage is the manager image to be built and loaded for testing.
 	managerImage = "example.com/claude-selfhosted-operator:v0.0.1"
@@ -61,6 +64,15 @@ var _ = BeforeSuite(func() {
 	By("loading the manager image on Kind")
 	err = utils.LoadImageToKindClusterWithName(managerImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
+
+	By("building the stub runner image")
+	cmd = exec.Command("make", "stub-image", fmt.Sprintf("STUB_IMG=%s", stubImage))
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the stub runner image")
+
+	By("loading the stub runner image on Kind")
+	err = utils.LoadImageToKindClusterWithName(stubImage)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the stub runner image into Kind")
 
 	configureKubectlKubeRC()
 	setupCertManager()

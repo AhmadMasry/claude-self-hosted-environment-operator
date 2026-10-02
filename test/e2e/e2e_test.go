@@ -280,6 +280,8 @@ var _ = Describe("Manager", Ordered, func() {
 		//    strings.ToLower(<Kind>),
 		// ))
 	})
+
+	fixedFleetSpecs()
 })
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.

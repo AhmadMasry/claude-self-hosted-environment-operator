@@ -1,0 +1,16 @@
+apiVersion: selfhosted.claudecode.dev/v1alpha1
+kind: ClaudeEnvironment
+metadata:
+  name: e2e
+  namespace: claude-e2e
+spec:
+  environmentSecretRef:
+    name: claude-env-secret
+  runner:
+    image: example.com/claude-stub-runner:e2e
+    capacity: 1
+    podTemplate:
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+  fixed:
+    replicas: 2
