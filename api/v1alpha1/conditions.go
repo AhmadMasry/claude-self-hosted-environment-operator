@@ -35,6 +35,7 @@ const (
 	ReasonReconciling           = "Reconciling"
 	ReasonAsExpected            = "AsExpected"
 	ReasonFixedModeSecretOnPods = "FixedModeSecretOnPods"
+	ReasonUnsupportedMode       = "UnsupportedMode"
 
 	LabelEnvironment     = "selfhosted.claudecode.dev/environment"
 	LabelRole            = "selfhosted.claudecode.dev/role"

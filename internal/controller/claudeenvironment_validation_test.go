@@ -31,7 +31,7 @@ func baseEnv(name string) *selfhostedv1alpha1.ClaudeEnvironment {
 	return &selfhostedv1alpha1.ClaudeEnvironment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 		Spec: selfhostedv1alpha1.ClaudeEnvironmentSpec{
-			EnvironmentSecretRef: selfhostedv1alpha1.SecretKeyRef{Name: "env-secret"},
+			EnvironmentSecretRef: selfhostedv1alpha1.SecretKeyRef{Name: envSecretName},
 			Runner:               selfhostedv1alpha1.RunnerSpec{Image: "registry.local:5000/runner:2.1.280"},
 			Fixed:                &selfhostedv1alpha1.FixedFleetSpec{Replicas: ptr.To[int32](1)},
 		},
