@@ -561,9 +561,8 @@ Kubebuilder v4 layout. Module path: `github.com/AhmadMasry/claude-self-hosted-en
 api/v1alpha1/                 types, deepcopy, CEL markers, docs
 cmd/main.go                   manager
 cmd/spawn-runner/main.go      hook
-internal/controller/
-  claudeenvironment/          reconciler + focused test files
-  clauderunner/
+internal/controller/          kubebuilder flat layout: one *_controller.go per
+                              reconciler, focused *_test.go files, shared envtest suite
 internal/builders/            pure functions: env -> Deployment/StatefulSet/Pod/
                               orchestrator Deployment/RBAC/NetworkPolicy; drain budget
 internal/hook/                hook logic behind a client interface (unit-testable)
