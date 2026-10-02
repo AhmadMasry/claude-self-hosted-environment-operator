@@ -43,6 +43,7 @@ const (
 	envSecretName = "env-secret"
 	runnerName    = "platform-runner"
 	hooksName     = "hooks"
+	envName       = "platform"
 )
 
 var nsCounter int
@@ -61,7 +62,7 @@ func envSecret(ns, key string) *corev1.Secret {
 
 func fixedEnv(ns string) *selfhostedv1alpha1.ClaudeEnvironment {
 	return &selfhostedv1alpha1.ClaudeEnvironment{
-		ObjectMeta: metav1.ObjectMeta{Name: "platform", Namespace: ns},
+		ObjectMeta: metav1.ObjectMeta{Name: envName, Namespace: ns},
 		Spec: selfhostedv1alpha1.ClaudeEnvironmentSpec{
 			EnvironmentSecretRef: selfhostedv1alpha1.SecretKeyRef{Name: envSecretName},
 			Runner:               selfhostedv1alpha1.RunnerSpec{Image: "registry.local/runner:2.1.280"},
@@ -106,7 +107,7 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		Expect(*dep.Spec.Template.Spec.TerminationGracePeriodSeconds).To(Equal(int64(80)))
 		Expect(dep.Spec.Template.Spec.Containers[0].Args[:3]).To(Equal([]string{"self-hosted-runner", "--environment-secret-file", "/etc/claude/environment-secret"}))
 		Expect(dep.OwnerReferences).To(HaveLen(1))
-		Expect(dep.OwnerReferences[0].Name).To(Equal("platform"))
+		Expect(dep.OwnerReferences[0].Name).To(Equal(envName))
 		Expect(dep.Spec.Template.Annotations).To(HaveKey(selfhostedv1alpha1.AnnotationConfigHash))
 
 		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionSecretFound), timeout, interval).Should(haveReason(metav1.ConditionTrue, selfhostedv1alpha1.ReasonSecretFound))

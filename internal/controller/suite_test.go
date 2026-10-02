@@ -48,6 +48,9 @@ var (
 	testEnv   *envtest.Environment
 	cfg       *rest.Config
 	k8sClient client.Client
+
+	envReconciler    *ClaudeEnvironmentReconciler
+	runnerReconciler *ClaudeRunnerReconciler
 )
 
 func TestControllers(t *testing.T) {
@@ -95,12 +98,18 @@ var _ = BeforeSuite(func() {
 		Metrics: metricsserver.Options{BindAddress: "0"},
 	})
 	Expect(err).NotTo(HaveOccurred())
-	Expect((&ClaudeEnvironmentReconciler{
-		Client: k8sManager.GetClient(),
-		Scheme: k8sManager.GetScheme(),
-		//nolint:staticcheck // Recorder is record.EventRecorder, matching the reconciler field
+	envReconciler = &ClaudeEnvironmentReconciler{
+		Client: k8sManager.GetClient(), Scheme: k8sManager.GetScheme(),
+		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
 		Recorder: k8sManager.GetEventRecorderFor("claude-selfhosted-operator-test"),
-	}).SetupWithManager(k8sManager)).To(Succeed())
+	}
+	Expect(envReconciler.SetupWithManager(k8sManager)).To(Succeed())
+	runnerReconciler = &ClaudeRunnerReconciler{
+		Client: k8sManager.GetClient(), Scheme: k8sManager.GetScheme(),
+		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
+		Recorder: k8sManager.GetEventRecorderFor("claude-selfhosted-operator-test"),
+	}
+	Expect(runnerReconciler.SetupWithManager(k8sManager)).To(Succeed())
 	go func() {
 		defer GinkgoRecover()
 		Expect(k8sManager.Start(ctx)).To(Succeed())
