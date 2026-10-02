@@ -21,8 +21,9 @@ Decisions made with the user on 2026-10-02:
 - GitHub repository `AhmadMasry/claude-self-hosted-environment-operator`
   (public). `master` is pushed; the scaffolded Lint, Tests and E2E
   workflows run there. Secrets `CLAUDE_ENVIRONMENT_KEY` and
-  `CLAUDE_ENVIRONMENT_ID` exist; `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` is added
-  when the real-environment workflow lands.
+  `CLAUDE_ENVIRONMENT_ID` exist and are all the CI needs;
+  `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` is optional and only enables the
+  automated session level of the real-environment test.
 - Operator image is public on GHCR
   (`ghcr.io/ahmadmasry/claude-self-hosted-environment-operator`), multi-arch,
   signed. The runner image bundles Anthropic's proprietary `claude` binary
@@ -234,42 +235,60 @@ for `hookTimeoutSeconds` becomes 15.
 
 ## 5. Real-environment workflow and upgrade test
 
-### 5.1 `real-e2e.yml` (manual)
+### 5.1 `real-e2e.yml` (manual), two levels
 
-- Trigger: `workflow_dispatch` with inputs `test_repo` (default this repo)
-  and `ref` (default `master`); a commented `schedule`.
-- Guard step: exits with a clear message unless `CLAUDE_ENVIRONMENT_KEY`,
-  `CLAUDE_ENVIRONMENT_ID` and `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` are set.
-- Steps: kind cluster (`make setup-test-e2e`); build and load the operator
-  image; build and load the CI runner image from
-  `test/real-e2e/runner.Dockerfile` (`FROM` the example image built with
-  the stable `CLAUDE_CODE_VERSION`, plus `jq`, plus the product's
-  remote-variant Stop hook at `/home/runner/.claude/hooks/e2e-stop-hook-capture.sh`
-  and the matching `settings.json`); deploy the operator; apply
+Credentials, and who uses them: `CLAUDE_ENVIRONMENT_KEY` is used only by
+the orchestrator pod in the cluster to register with the environment and
+claim sessions. `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` (optional) is used only
+by the CI job, acting as a user, to create a session routed to
+`CLAUDE_ENVIRONMENT_ID`. The two never meet in one component.
+
+- Trigger: `workflow_dispatch` with inputs `test_repo` (default this repo),
+  `ref` (default `master`) and `keep_cluster` (default false); a commented
+  `schedule`.
+- Guard step: exits with a clear message unless `CLAUDE_ENVIRONMENT_KEY`
+  and `CLAUDE_ENVIRONMENT_ID` are set. The token is optional.
+- Level 1, registration (key only, always runs): kind cluster
+  (`make setup-test-e2e`); build and load the operator image; build and
+  load the CI runner image from `test/real-e2e/runner.Dockerfile` (`FROM`
+  the example image built with the stable `CLAUDE_CODE_VERSION`, plus
+  `jq`, plus the product's remote-variant Stop hook at
+  `/home/runner/.claude/hooks/e2e-stop-hook-capture.sh` and the matching
+  `settings.json`); deploy the operator; apply
   `test/real-e2e/replysink.yaml` (a tiny Go HTTP receiver in
-  `test/replysink`, distroless, exposing `POST /<session_id>` and
+  `test/replysink`, distroless, `POST /<session_id>` and
   `GET /<session_id>`); create the namespace, the Secret from
   `CLAUDE_ENVIRONMENT_KEY`, and `test/real-e2e/environment.yaml` (on-demand,
   1 orchestrator replica, `runner.env` `E2E_REPLY_URL=http://replysink.<ns>.svc:8080`,
-  `expectedSpawnSeconds` 180, TTL 120); wait for Ready.
-- Dispatch (product recipe): install the Claude Code CLI on the job VM,
-  `claude auth login` non-interactively with
-  `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` and `CLAUDE_CODE_OAUTH_SCOPES`, then from
-  the checkout `claude -p "<sentinel prompt>" --environment "$CLAUDE_ENVIRONMENT_ID" --ref <ref> --output-format json`,
-  poll the sink via `kubectl port-forward` or `kubectl exec` for the
-  sentinel, send one follow-up with `--cloud <session_id>`, poll again.
-- Operator assertions: a ClaudeRunner appears within `expectedSpawnSeconds`,
-  reaches Running then Succeeded (the runner exits after the session is
-  released; the test sends the session an "end" instruction and relies on
-  `releaseIdleSessionMinutes: 1` plus `killSessionAfterMinutes: 5`), then
-  is garbage-collected.
-- Teardown always runs: delete the namespace, `make cleanup-test-e2e`.
+  `releaseIdleSessionMinutes: 1`, `killSessionAfterMinutes: 5`,
+  `expectedSpawnSeconds` 180, TTL 120). Assert the environment reaches
+  Ready, which requires the orchestrator's `/healthz` to report
+  `connected: true`, i.e. it authenticated to Anthropic with the key. No
+  session is created and nothing is billed.
+- Level 2, session (runs in CI only when `CLAUDE_CODE_OAUTH_REFRESH_TOKEN`
+  is present; otherwise reported as skipped): install the Claude Code CLI
+  on the job VM, `claude auth login` non-interactively with
+  `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` and `CLAUDE_CODE_OAUTH_SCOPES`, then
+  run the shared script `hack/real-session-test.sh` (below).
+- `hack/real-session-test.sh` (also `make real-session-test`): the product
+  recipe, runnable by a person on any machine that has run
+  `claude auth login` and has kubeconfig access to a cluster running the
+  operator and the reply sink. From the checkout of `test_repo`:
+  `claude -p "<sentinel prompt>" --environment "$CLAUDE_ENVIRONMENT_ID" --ref <ref> --output-format json`,
+  poll the sink through `kubectl port-forward` for the sentinel, send one
+  follow-up with `--cloud <session_id>`, poll again, and assert the
+  operator's view: a ClaudeRunner appeared within `expectedSpawnSeconds`,
+  reached Running then Succeeded, and was garbage-collected.
+- Teardown always runs unless `keep_cluster` is true: delete the
+  namespace, `make cleanup-test-e2e`. With `keep_cluster`, the job prints
+  how to reach the cluster so a person can run Level 2 against it.
 - Prerequisites on the user's side, documented in `docs/testing.md`: a
-  dedicated test environment in the Team org; the org's GitHub connection
-  covers `test_repo`; a dedicated automation account whose refresh token is
+  dedicated test environment in the Team org; for Level 2, the org's
+  GitHub connection covers `test_repo`, and either a person with
+  `claude auth login` or an automation account whose refresh token is
   stored as `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` and renewed every 30 days
-  (the product caps the refresh grant at 30 days; exact minting steps in
-  the doc).
+  (the product caps the refresh grant at 30 days; minting steps in the
+  doc).
 
 ### 5.2 Upgrade test
 
