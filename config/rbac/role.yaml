@@ -14,6 +14,14 @@ rules:
   - watch
 - apiGroups:
   - ""
+  resourceNames:
+  - kubernetes
+  resources:
+  - endpoints
+  verbs:
+  - get
+- apiGroups:
+  - ""
   resources:
   - events
   verbs:

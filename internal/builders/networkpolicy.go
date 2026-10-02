@@ -81,3 +81,40 @@ func EnvironmentNetworkPolicy(env *selfhostedv1alpha1.ClaudeEnvironment) *networ
 		},
 	}
 }
+
+// APIServerNetworkPolicyName names the orchestrator's API server egress policy.
+func APIServerNetworkPolicyName(env *selfhostedv1alpha1.ClaudeEnvironment) string {
+	return env.Name + "-egress-apiserver"
+}
+
+// APIServerNetworkPolicy lets the orchestrator pod reach the Kubernetes API
+// server, whose addresses and ports come from the default/kubernetes
+// Endpoints, so its spawn hook can create work-order Secrets and ClaudeRunners
+// under the default-deny policy. NetworkPolicy cannot name a Service, so the
+// endpoint addresses are used as /32 blocks.
+func APIServerNetworkPolicy(env *selfhostedv1alpha1.ClaudeEnvironment, endpoints *corev1.Endpoints) *networkingv1.NetworkPolicy { //nolint:staticcheck // Endpoints is the only API read with get on a single named object; default/kubernetes is still maintained
+	tcp := corev1.ProtocolTCP
+	rule := networkingv1.NetworkPolicyEgressRule{}
+	seenPort := map[int32]bool{}
+	for _, subset := range endpoints.Subsets {
+		for _, addr := range subset.Addresses {
+			rule.To = append(rule.To, networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: addr.IP + "/32"}})
+		}
+		for _, p := range subset.Ports {
+			if !seenPort[p.Port] {
+				seenPort[p.Port] = true
+				rule.Ports = append(rule.Ports, networkingv1.NetworkPolicyPort{Protocol: &tcp, Port: new(intstr.FromInt32(p.Port))})
+			}
+		}
+	}
+	labels := map[string]string{selfhostedv1alpha1.LabelEnvironment: env.Name, selfhostedv1alpha1.LabelPartOf: selfhostedv1alpha1.PartOfValue}
+	return &networkingv1.NetworkPolicy{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "networking.k8s.io/v1", Kind: "NetworkPolicy"},
+		ObjectMeta: metav1.ObjectMeta{Name: APIServerNetworkPolicyName(env), Namespace: env.Namespace, Labels: labels},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{MatchLabels: OrchestratorSelectorLabels(env)},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+			Egress:      []networkingv1.NetworkPolicyEgressRule{rule},
+		},
+	}
+}

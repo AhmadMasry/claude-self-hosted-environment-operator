@@ -101,7 +101,7 @@ var _ = Describe("ClaudeEnvironment CEL validation", func() {
 			e.Spec.Runner.ExtraArgs = []string{"--capacity=4"}
 		}, "operator-owned flags"),
 		Entry("egress CIDR out of IPv4 CIDR syntax", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
-			e.Spec.Runner.NetworkPolicy = &selfhostedv1alpha1.NetworkPolicySpec{Enabled: true, EgressCIDRs: []string{"10.0.0.0/8", "not-a-cidr"}}
+			e.Spec.Runner.NetworkPolicy = &selfhostedv1alpha1.NetworkPolicySpec{Enabled: true, EgressCIDRs: []string{testEgressCIDR, "not-a-cidr"}}
 		}, "egressCIDRs must be IPv4 CIDRs"),
 		Entry("hook timeout too close to spawn lease", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Fixed = nil

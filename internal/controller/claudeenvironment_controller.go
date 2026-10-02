@@ -102,6 +102,7 @@ func (r *ClaudeEnvironmentReconciler) hookImage() string {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;patch;delete
 // +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=clauderunners,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=endpoints,verbs=get,resourceNames=kubernetes
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
@@ -191,9 +192,28 @@ func (r *ClaudeEnvironmentReconciler) withNetworkPolicy(ctx context.Context, env
 
 func (r *ClaudeEnvironmentReconciler) reconcileNetworkPolicy(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment) error {
 	np := env.Spec.Runner.NetworkPolicy
-	obj := builders.EnvironmentNetworkPolicy(env)
+	egress := builders.EnvironmentNetworkPolicy(env)
+	apiServer := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: builders.APIServerNetworkPolicyName(env), Namespace: env.Namespace}}
 	if np == nil || !np.Enabled {
-		return r.deleteIfOwned(ctx, env, &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: obj.Name, Namespace: obj.Namespace}})
+		if err := r.deleteIfOwned(ctx, env, &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: egress.Name, Namespace: egress.Namespace}}); err != nil {
+			return err
+		}
+		return r.deleteIfOwned(ctx, env, apiServer)
+	}
+	if err := r.apply(ctx, env, egress); err != nil {
+		return err
+	}
+	// Only on-demand environments have an orchestrator that needs the API server.
+	if env.Spec.OnDemand == nil {
+		return r.deleteIfOwned(ctx, env, apiServer)
+	}
+	endpoints := &corev1.Endpoints{} //nolint:staticcheck // the ruled design reads the single default/kubernetes object
+	if err := r.Reader.Get(ctx, types.NamespacedName{Namespace: metav1.NamespaceDefault, Name: "kubernetes"}, endpoints); err != nil {
+		return fmt.Errorf("read API server endpoints: %w", err)
+	}
+	obj := builders.APIServerNetworkPolicy(env, endpoints)
+	if len(obj.Spec.Egress[0].To) == 0 || len(obj.Spec.Egress[0].Ports) == 0 {
+		return fmt.Errorf("read API server endpoints: default/kubernetes lists no addresses or ports")
 	}
 	return r.apply(ctx, env, obj)
 }

@@ -9,6 +9,9 @@ spec:
   runner:
     image: example.com/claude-stub-runner:e2e
     capacity: 1
+    networkPolicy:
+      enabled: true
+      egressCIDRs: ["10.0.0.0/8"]
     env:
       - name: STUB_EXIT_AFTER_SECONDS
         value: "90"          # long enough for the spec to observe Running after Ready

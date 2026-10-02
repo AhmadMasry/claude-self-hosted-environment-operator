@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -42,11 +43,12 @@ const (
 	timeout  = 10 * time.Second
 	interval = 200 * time.Millisecond
 
-	envSecretName = "env-secret"
-	runnerName    = "platform-runner"
-	hooksName     = "hooks"
-	envName       = "platform"
-	runnerImage   = "registry.local/runner:2.1.280"
+	envSecretName  = "env-secret"
+	runnerName     = "platform-runner"
+	hooksName      = "hooks"
+	envName        = "platform"
+	testEgressCIDR = "10.0.0.0/8"
+	runnerImage    = "registry.local/runner:2.1.280"
 )
 
 var nsCounter int
@@ -129,10 +131,14 @@ func eventMessages(ctx context.Context, ns, reason string) func() ([]string, err
 
 // poke updates an annotation so the environment is reconciled again.
 func poke(ctx context.Context, key types.NamespacedName, value string) {
-	env := &selfhostedv1alpha1.ClaudeEnvironment{}
-	ExpectWithOffset(1, k8sClient.Get(ctx, key, env)).To(Succeed())
-	env.Annotations = map[string]string{"test/poke": value}
-	ExpectWithOffset(1, k8sClient.Update(ctx, env)).To(Succeed())
+	ExpectWithOffset(1, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		env := &selfhostedv1alpha1.ClaudeEnvironment{}
+		if err := k8sClient.Get(ctx, key, env); err != nil {
+			return err
+		}
+		env.Annotations = map[string]string{"test/poke": value}
+		return k8sClient.Update(ctx, env)
+	})).To(Succeed())
 }
 
 var _ = Describe("ClaudeEnvironment fixed mode", func() {
@@ -378,7 +384,7 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		ns := newNamespace(ctx)
 		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
 		env := fixedEnv(ns)
-		env.Spec.Runner.NetworkPolicy = &selfhostedv1alpha1.NetworkPolicySpec{Enabled: true, EgressCIDRs: []string{"10.0.0.0/8"}}
+		env.Spec.Runner.NetworkPolicy = &selfhostedv1alpha1.NetworkPolicySpec{Enabled: true, EgressCIDRs: []string{testEgressCIDR}}
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
 		key := client.ObjectKeyFromObject(env)
 		npKey := types.NamespacedName{Name: builders.NetworkPolicyName(env), Namespace: ns}
@@ -392,6 +398,10 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		Expect(np.Spec.Egress[0].To[0].PodSelector.MatchLabels).To(HaveKeyWithValue("k8s-app", "kube-dns"))
 		Expect(np.OwnerReferences).To(HaveLen(1))
 		Expect(np.OwnerReferences[0].Name).To(Equal(envName))
+		By("creating no API server policy in fixed mode, which has no orchestrator")
+		Consistently(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: builders.APIServerNetworkPolicyName(env), Namespace: ns}, &networkingv1.NetworkPolicy{}))
+		}, time.Second, interval).Should(BeTrue())
 
 		Expect(k8sClient.Get(ctx, key, env)).To(Succeed())
 		env.Spec.Runner.NetworkPolicy.Enabled = false
@@ -399,6 +409,49 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		Eventually(func() bool {
 			return apierrors.IsNotFound(k8sClient.Get(ctx, npKey, &networkingv1.NetworkPolicy{}))
 		}, timeout, interval).Should(BeTrue())
+	})
+
+	It("lets the on-demand orchestrator reach the API server and removes both policies when disabled", func() {
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
+		env := onDemandEnvObj(ns)
+		env.Spec.Runner.NetworkPolicy = &selfhostedv1alpha1.NetworkPolicySpec{Enabled: true, EgressCIDRs: []string{testEgressCIDR}}
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		key := client.ObjectKeyFromObject(env)
+		egressKey := types.NamespacedName{Name: builders.NetworkPolicyName(env), Namespace: ns}
+		apiKey := types.NamespacedName{Name: builders.APIServerNetworkPolicyName(env), Namespace: ns}
+
+		Eventually(func() error { return k8sClient.Get(ctx, egressKey, &networkingv1.NetworkPolicy{}) }, timeout, interval).Should(Succeed())
+		np := &networkingv1.NetworkPolicy{}
+		Eventually(func() error { return k8sClient.Get(ctx, apiKey, np) }, timeout, interval).Should(Succeed())
+		Expect(np.Name).To(Equal(env.Name + "-egress-apiserver"))
+		Expect(np.Spec.PodSelector.MatchLabels).To(Equal(builders.OrchestratorSelectorLabels(env)))
+		Expect(np.Labels).To(And(HaveKeyWithValue(selfhostedv1alpha1.LabelEnvironment, env.Name), HaveKeyWithValue(selfhostedv1alpha1.LabelPartOf, selfhostedv1alpha1.PartOfValue)))
+
+		eps := &corev1.Endpoints{} //nolint:staticcheck // mirrors the controller read
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "kubernetes"}, eps)).To(Succeed())
+		var cidrs []string
+		for _, sub := range eps.Subsets {
+			for _, a := range sub.Addresses {
+				cidrs = append(cidrs, a.IP+"/32")
+			}
+		}
+		Expect(cidrs).NotTo(BeEmpty())
+		Expect(np.Spec.Egress).To(HaveLen(1))
+		for _, peer := range np.Spec.Egress[0].To {
+			Expect(peer.IPBlock.CIDR).To(HaveSuffix("/32"))
+			Expect(cidrs).To(ContainElement(peer.IPBlock.CIDR))
+		}
+		Expect(np.Spec.Egress[0].To).To(HaveLen(len(cidrs)))
+
+		Expect(k8sClient.Get(ctx, key, env)).To(Succeed())
+		env.Spec.Runner.NetworkPolicy.Enabled = false
+		Expect(k8sClient.Update(ctx, env)).To(Succeed())
+		for _, k := range []types.NamespacedName{egressKey, apiKey} {
+			Eventually(func() bool {
+				return apierrors.IsNotFound(k8sClient.Get(ctx, k, &networkingv1.NetworkPolicy{}))
+			}, timeout, interval).Should(BeTrue(), k.Name)
+		}
 	})
 
 	It("marks the environment Degraded when runner pods keep failing at start", func() {
