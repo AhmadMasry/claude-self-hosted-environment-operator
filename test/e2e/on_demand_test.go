@@ -105,5 +105,15 @@ func onDemandSpecs() {
 			Expect(logs).To(ContainSubstring("hook run 2 exit 0"))
 			Expect(logs).NotTo(ContainSubstring("stub-work-order-jwt"), "the hook must never print the work order")
 		})
+
+		It("denies the orchestrator identity anything outside its own work orders", func() {
+			sa := "system:serviceaccount:" + odNamespace + ":e2e-od-orchestrator"
+			_, err := kubectlOD("create", "secret", "generic", "evil", "--from-literal=k=v", "--as", sa)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("orchestrator ServiceAccount may only manage Secrets named *-work-order"))
+			_, err = kubectlOD("create", "secret", "generic", "ok-work-order", "--from-literal=jwt=x", "--as", sa)
+			Expect(err).NotTo(HaveOccurred())
+			_, _ = kubectlOD("delete", "secret", "ok-work-order", "--as", sa)
+		})
 	})
 }

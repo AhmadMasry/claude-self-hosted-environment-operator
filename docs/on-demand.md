@@ -76,6 +76,13 @@ finalizer `selfhosted.claudecode.dev/runner-pod` makes deletion remove the pod f
 
     kubectl get crun -A     # columns: Phase, Session, Pod, Age
 
+## Admission policy
+
+Two ValidatingAdmissionPolicies (`config/admission`, Kubernetes 1.30+) confine every `<env>-orchestrator`
+ServiceAccount: it may only create, update and delete Secrets named `*-work-order`, and may only create
+ClaudeRunners controlled by its own ClaudeEnvironment. On older clusters remove `../admission` from
+`config/default/kustomization.yaml`.
+
 ## Environment status
 
 Conditions: `FleetAvailable` has reasons `WorkloadAvailable`, `OrchestratorUnavailable`, `HookImageUnset`

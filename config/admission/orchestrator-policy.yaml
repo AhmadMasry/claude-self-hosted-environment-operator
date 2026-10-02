@@ -1,0 +1,61 @@
+# Confines every <env>-orchestrator ServiceAccount to its own work orders.
+# Requires Kubernetes 1.30 or later (ValidatingAdmissionPolicy GA).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: orchestrator-secrets
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["secrets"]
+  matchConditions:
+    - name: orchestrator-service-account
+      expression: "request.userInfo.username.startsWith('system:serviceaccount:') && request.userInfo.username.endsWith('-orchestrator')"
+  validations:
+    - expression: "(request.operation == 'DELETE' ? oldObject : object).metadata.name.endsWith('-work-order')"
+      reason: Forbidden
+      message: "an orchestrator ServiceAccount may only manage Secrets named *-work-order"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: orchestrator-secrets
+spec:
+  policyName: orchestrator-secrets
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: orchestrator-runners
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["selfhosted.claudecode.dev"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE"]
+        resources: ["clauderunners"]
+  matchConditions:
+    - name: orchestrator-service-account
+      expression: "request.userInfo.username.startsWith('system:serviceaccount:') && request.userInfo.username.endsWith('-orchestrator')"
+  validations:
+    - expression: >-
+        has(object.metadata.ownerReferences) &&
+        object.metadata.ownerReferences.exists(o,
+          o.kind == 'ClaudeEnvironment' && has(o.controller) && o.controller &&
+          request.userInfo.username == 'system:serviceaccount:' + object.metadata.namespace + ':' + o.name + '-orchestrator')
+      reason: Forbidden
+      message: "an orchestrator may only create ClaudeRunners owned by its own ClaudeEnvironment"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: orchestrator-runners
+spec:
+  policyName: orchestrator-runners
+  validationActions: [Deny]
