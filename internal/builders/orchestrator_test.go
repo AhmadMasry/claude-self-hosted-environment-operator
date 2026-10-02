@@ -141,6 +141,10 @@ func TestOrchestratorDeployment(t *testing.T) {
 	if len(ps.InitContainers) != 1 || ps.InitContainers[0].Image != "ghcr.io/x/operator:1.0" || ps.InitContainers[0].Name != HookInitContainerName {
 		t.Fatalf("init container wrong: %+v", ps.InitContainers)
 	}
+	initCmd := ps.InitContainers[0].Command
+	if len(initCmd) != 1 || initCmd[0] != "/spawn-runner" {
+		t.Fatalf("init container must run the hook binary, not the image entrypoint: %v", initCmd)
+	}
 	initArgs := ps.InitContainers[0].Args
 	if len(initArgs) != 2 || initArgs[0] != "--install" || initArgs[1] != HookInstallDir {
 		t.Fatalf("init args wrong: %v", initArgs)

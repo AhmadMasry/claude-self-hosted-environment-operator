@@ -191,7 +191,7 @@ func orchestratorContainers(env *selfhostedv1alpha1.ClaudeEnvironment) []corev1.
 		Env:   orchestratorEnv(env),
 		Ports: []corev1.ContainerPort{{Name: "health", ContainerPort: healthPort, Protocol: corev1.ProtocolTCP}},
 		ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{
-			Command: []string{HooksMountPath + "/spawn-runner", "--probe-connected", healthURL}}},
+			Command: []string{HooksMountPath + HookBinaryPath, "--probe-connected", healthURL}}},
 			InitialDelaySeconds: 5, PeriodSeconds: 10, TimeoutSeconds: 5},
 		LivenessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
 			Path: healthzPath, Port: intstr.FromString("health")}}, InitialDelaySeconds: 30, PeriodSeconds: 30},
@@ -206,6 +206,7 @@ func orchestratorInitContainers(hookImage string) []corev1.Container {
 	return []corev1.Container{{
 		Name:            HookInitContainerName,
 		Image:           hookImage,
+		Command:         []string{HookBinaryPath},
 		Args:            []string{"--install", HookInstallDir},
 		VolumeMounts:    []corev1.VolumeMount{{Name: hookVolumeName, MountPath: HookInstallDir}},
 		SecurityContext: restrictedContainerSecurityContext(),
