@@ -63,6 +63,7 @@ const (
 	ReasonOnDemandSecretOnOrchestrator = "OnDemandSecretOnOrchestrator"
 	ReasonHookImageUnset               = "HookImageUnset"
 	ReasonFleetAvailable               = "FleetAvailable"
+	ReasonCreated                      = "Created"
 
 	LabelOrderID          = "selfhosted.claudecode.dev/order-id"
 	LabelSessionID        = "selfhosted.claudecode.dev/session-id"

@@ -89,6 +89,49 @@ func haveReason(status metav1.ConditionStatus, reason string) OmegaMatcher {
 	return And(HaveField("Status", status), HaveField("Reason", reason))
 }
 
+// eventCount sums the occurrences of events with reason in ns; the recorder
+// aggregates repeats of the same event into one object with a count.
+func eventCount(ctx context.Context, ns, reason string) func() (int32, error) {
+	return func() (int32, error) {
+		list := &corev1.EventList{}
+		if err := k8sClient.List(ctx, list, client.InNamespace(ns)); err != nil {
+			return 0, err
+		}
+		var n int32
+		for _, e := range list.Items {
+			if e.Reason == reason {
+				n += max(e.Count, 1)
+			}
+		}
+		return n, nil
+	}
+}
+
+// eventMessages lists the messages of events with reason in ns.
+func eventMessages(ctx context.Context, ns, reason string) func() ([]string, error) {
+	return func() ([]string, error) {
+		list := &corev1.EventList{}
+		if err := k8sClient.List(ctx, list, client.InNamespace(ns)); err != nil {
+			return nil, err
+		}
+		var out []string
+		for _, e := range list.Items {
+			if e.Reason == reason {
+				out = append(out, e.Message)
+			}
+		}
+		return out, nil
+	}
+}
+
+// poke updates an annotation so the environment is reconciled again.
+func poke(ctx context.Context, key types.NamespacedName, value string) {
+	env := &selfhostedv1alpha1.ClaudeEnvironment{}
+	ExpectWithOffset(1, k8sClient.Get(ctx, key, env)).To(Succeed())
+	env.Annotations = map[string]string{"test/poke": value}
+	ExpectWithOffset(1, k8sClient.Update(ctx, env)).To(Succeed())
+}
+
 var _ = Describe("ClaudeEnvironment fixed mode", func() {
 	ctx := context.Background()
 
@@ -127,6 +170,8 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		Expect(got.Status.ComputedDrainBudgetSeconds).To(Equal(int64(80)))
 		Expect(got.Status.Fixed.ReadyReplicas).To(Equal(int32(2)))
 		Expect(got.Status.ObservedGeneration).To(Equal(got.Generation))
+		Eventually(eventMessages(ctx, ns, selfhostedv1alpha1.ReasonCreated), timeout, interval).Should(
+			ContainElement(ContainSubstring("Deployment platform-runner")))
 	})
 
 	It("reports SecretMissing and creates no Deployment when the Secret is absent", func() {
@@ -216,6 +261,12 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 			return k8sClient.Get(ctx, types.NamespacedName{Name: runnerName, Namespace: ns}, dep)
 		}, timeout, interval).Should(Succeed())
 		Expect(*dep.Spec.Template.Spec.TerminationGracePeriodSeconds).To(Equal(int64(30)))
+
+		// A Warning is emitted on the transition to Degraded only, not on every pass.
+		Eventually(eventCount(ctx, ns, selfhostedv1alpha1.ReasonGracePeriodTooShort), timeout, interval).Should(Equal(int32(1)))
+		poke(ctx, key, "1")
+		poke(ctx, key, "2")
+		Consistently(eventCount(ctx, ns, selfhostedv1alpha1.ReasonGracePeriodTooShort), 3*time.Second, interval).Should(Equal(int32(1)))
 	})
 
 	It("creates a StatefulSet for a persistent workspace and removes a stale Deployment", func() {
@@ -272,9 +323,10 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		Expect(k8sClient.Get(ctx, stsKey, sts)).To(Succeed())
 		generation := sts.Generation
 
-		// volumeClaimTemplates are immutable, so this apply is rejected.
+		// volumeClaimTemplates accessModes are immutable (KEP-4650 relaxes only
+		// the storage request), so this apply is rejected.
 		Expect(k8sClient.Get(ctx, key, env)).To(Succeed())
-		env.Spec.Fixed.PersistentWorkspace.VolumeClaimTemplate.Resources.Requests[corev1.ResourceStorage] = mustQuantity("20Gi")
+		env.Spec.Fixed.PersistentWorkspace.VolumeClaimTemplate.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany}
 		Expect(k8sClient.Update(ctx, env)).To(Succeed())
 
 		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionFleetAvailable), timeout, interval).Should(
@@ -285,8 +337,12 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		got := &appsv1.StatefulSet{}
 		Expect(k8sClient.Get(ctx, stsKey, got)).To(Succeed())
 		Expect(got.Generation).To(Equal(generation))
-		storage := got.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[corev1.ResourceStorage]
-		Expect(storage.String()).To(Equal("10Gi"))
+		Expect(got.Spec.VolumeClaimTemplates[0].Spec.AccessModes).To(Equal([]corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}))
+		Eventually(func() (*selfhostedv1alpha1.FixedFleetStatus, error) {
+			e := &selfhostedv1alpha1.ClaudeEnvironment{}
+			err := k8sClient.Get(ctx, key, e)
+			return e.Status.Fixed, err
+		}, timeout, interval).Should(BeNil())
 	})
 
 	It("keeps a stable Degraded message and ResourceVersion with several missing ConfigMaps", func() {

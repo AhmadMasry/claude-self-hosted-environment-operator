@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
+	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
 )
 
@@ -108,4 +109,13 @@ func podStatusChanged() predicate.Predicate {
 			return !equality.Semantic.DeepEqual(oldPod.Status.ContainerStatuses, newPod.Status.ContainerStatuses)
 		},
 	}
+}
+
+// runnerPhaseChanged lets ClaudeRunner update events through only when the phase changed.
+func runnerPhaseChanged() predicate.Predicate {
+	return predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+		o, ok1 := e.ObjectOld.(*selfhostedv1alpha1.ClaudeRunner)
+		n, ok2 := e.ObjectNew.(*selfhostedv1alpha1.ClaudeRunner)
+		return ok1 && ok2 && o.Status.Phase != n.Status.Phase
+	}}
 }

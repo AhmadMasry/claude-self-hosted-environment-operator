@@ -21,8 +21,10 @@ import (
 	"slices"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 )
@@ -34,10 +36,25 @@ type degradation struct{ reason, message string }
 type statusPass struct {
 	env      *selfhostedv1alpha1.ClaudeEnvironment
 	degraded []degradation
+	// before holds the conditions as they were when the pass started.
+	before []metav1.Condition
+	// warnings are sent by emit once the pass's status is stored, so a pass
+	// that read a stale object and lost the update race does not repeat them.
+	warnings []warning
+}
+
+type warning struct {
+	rec             record.EventRecorder
+	env             *selfhostedv1alpha1.ClaudeEnvironment
+	reason, message string
 }
 
 func newStatusPass(env *selfhostedv1alpha1.ClaudeEnvironment) *statusPass {
-	return &statusPass{env: env}
+	before := make([]metav1.Condition, len(env.Status.Conditions))
+	for i := range env.Status.Conditions {
+		env.Status.Conditions[i].DeepCopyInto(&before[i])
+	}
+	return &statusPass{env: env, before: before}
 }
 
 func (p *statusPass) set(t string, status metav1.ConditionStatus, reason, message string) {
@@ -48,6 +65,24 @@ func (p *statusPass) set(t string, status metav1.ConditionStatus, reason, messag
 
 func (p *statusPass) degrade(reason, message string) {
 	p.degraded = append(p.degraded, degradation{reason, message})
+}
+
+// degradeOnce records the degradation and emits a Warning event only when
+// the Degraded condition was not already True with this reason. The event is
+// sent by emit after the status update succeeds.
+func (p *statusPass) degradeOnce(rec record.EventRecorder, env *selfhostedv1alpha1.ClaudeEnvironment, reason, msg string) {
+	p.degrade(reason, msg)
+	if c := meta.FindStatusCondition(p.before, selfhostedv1alpha1.ConditionDegraded); c != nil && c.Status == metav1.ConditionTrue && c.Reason == reason {
+		return
+	}
+	p.warnings = append(p.warnings, warning{rec, env, reason, msg})
+}
+
+// emit sends the Warning events degradeOnce queued.
+func (p *statusPass) emit() {
+	for _, w := range p.warnings {
+		w.rec.Event(w.env, corev1.EventTypeWarning, w.reason, w.message)
+	}
 }
 
 func (p *statusPass) isTrue(t string) bool {

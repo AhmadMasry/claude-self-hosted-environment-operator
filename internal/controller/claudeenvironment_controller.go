@@ -134,26 +134,32 @@ func (r *ClaudeEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			return ctrl.Result{}, client.IgnoreNotFound(uerr)
 		}
 	}
+	pass.emit()
 	metrics.RecordEnvironment(env)
 	return res, err
 }
 
 func (r *ClaudeEnvironmentReconciler) reconcile(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) (ctrl.Result, error) {
 	secret, ok, err := r.resolveSecret(ctx, env, pass)
-	if err != nil || !ok {
-		return ctrl.Result{RequeueAfter: requeueAfterUserFix}, err
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !ok {
+		return ctrl.Result{RequeueAfter: requeueAfterUserFix}, nil
 	}
 	configMaps, ok, err := r.resolveConfigMaps(ctx, env, pass)
-	if err != nil || !ok {
-		return ctrl.Result{RequeueAfter: requeueAfterUserFix}, err
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !ok {
+		return ctrl.Result{RequeueAfter: requeueAfterUserFix}, nil
 	}
 
 	env.Status.ComputedDrainBudgetSeconds = builders.DrainBudgetSeconds(env.Spec.Runner.Settings)
 	if _, tooShort := builders.EffectiveGracePeriod(env); tooShort {
 		msg := fmt.Sprintf("terminationGracePeriodSeconds %d is below the computed drain budget of %d seconds",
 			*env.Spec.Runner.TerminationGracePeriodSeconds, env.Status.ComputedDrainBudgetSeconds)
-		pass.degrade(selfhostedv1alpha1.ReasonGracePeriodTooShort, msg)
-		r.Recorder.Event(env, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonGracePeriodTooShort, msg)
+		pass.degradeOnce(r.Recorder, env, selfhostedv1alpha1.ReasonGracePeriodTooShort, msg)
 	}
 
 	if env.Spec.OnDemand != nil {
@@ -227,8 +233,7 @@ func (r *ClaudeEnvironmentReconciler) resolveConfigMaps(ctx context.Context, env
 		switch {
 		case apierrors.IsNotFound(err):
 			msg := fmt.Sprintf("ConfigMap %q not found", name)
-			pass.degrade(selfhostedv1alpha1.ReasonConfigMapMissing, msg)
-			r.Recorder.Event(env, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonConfigMapMissing, msg)
+			pass.degradeOnce(r.Recorder, env, selfhostedv1alpha1.ReasonConfigMapMissing, msg)
 			ok = false
 			continue
 		case err != nil:
@@ -238,8 +243,7 @@ func (r *ClaudeEnvironmentReconciler) resolveConfigMaps(ctx context.Context, env
 			if _, has := cm.Data[requiredKey]; !has {
 				if _, hasBin := cm.BinaryData[requiredKey]; !hasBin {
 					msg := fmt.Sprintf("ConfigMap %q has no key %q", name, requiredKey)
-					pass.degrade(selfhostedv1alpha1.ReasonConfigMapMissing, msg)
-					r.Recorder.Event(env, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonConfigMapMissing, msg)
+					pass.degradeOnce(r.Recorder, env, selfhostedv1alpha1.ReasonConfigMapMissing, msg)
 					ok = false
 					continue
 				}
@@ -264,6 +268,7 @@ func (r *ClaudeEnvironmentReconciler) reconcileFixed(ctx context.Context, env *s
 	if env.Spec.Fixed.PersistentWorkspace != nil {
 		sts := builders.FixedStatefulSet(env, hash)
 		if err := r.apply(ctx, env, sts); err != nil {
+			env.Status.Fixed = nil
 			return ctrl.Result{}, r.applyFailed(env, pass, "StatefulSet", err)
 		}
 		if err := r.deleteIfOwned(ctx, env, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: sts.Name, Namespace: sts.Namespace}}); err != nil {
@@ -274,6 +279,7 @@ func (r *ClaudeEnvironmentReconciler) reconcileFixed(ctx context.Context, env *s
 	} else {
 		dep := builders.FixedDeployment(env, hash)
 		if err := r.apply(ctx, env, dep); err != nil {
+			env.Status.Fixed = nil
 			return ctrl.Result{}, r.applyFailed(env, pass, "Deployment", err)
 		}
 		if err := r.deleteIfOwned(ctx, env, &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: dep.Name, Namespace: dep.Namespace}}); err != nil {
@@ -316,16 +322,18 @@ func (r *ClaudeEnvironmentReconciler) reconcileOnDemand(ctx context.Context, env
 	if r.hookImage() == "" {
 		msg := "operator has no hook image configured; set --hook-image or OPERATOR_IMAGE on the manager"
 		pass.set(selfhostedv1alpha1.ConditionFleetAvailable, metav1.ConditionFalse, selfhostedv1alpha1.ReasonHookImageUnset, msg)
-		pass.degrade(selfhostedv1alpha1.ReasonHookImageUnset, msg)
-		r.Recorder.Event(env, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonHookImageUnset, msg)
+		pass.degradeOnce(r.Recorder, env, selfhostedv1alpha1.ReasonHookImageUnset, msg)
+		env.Status.OnDemand = nil
 		return ctrl.Result{RequeueAfter: requeueAfterUserFix}, nil
 	}
 
 	if err := r.applyOrchestratorRBAC(ctx, env, pass); err != nil {
+		env.Status.OnDemand = nil
 		return ctrl.Result{}, err
 	}
 	dep := builders.OrchestratorDeployment(env, builders.OrchestratorConfigHash(env, secret, r.hookImage()), r.hookImage())
 	if err := r.apply(ctx, env, dep); err != nil {
+		env.Status.OnDemand = nil
 		return ctrl.Result{}, r.applyFailed(env, pass, "Deployment", err)
 	}
 
@@ -415,8 +423,7 @@ func (r *ClaudeEnvironmentReconciler) checkRunnerPods(ctx context.Context, env *
 		return err
 	}
 	if failed, msg := detectFailedStart(pods.Items, r.now()); failed {
-		pass.degrade(selfhostedv1alpha1.ReasonRunnerFailedStart, msg)
-		r.Recorder.Event(env, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonRunnerFailedStart, msg)
+		pass.degradeOnce(r.Recorder, env, selfhostedv1alpha1.ReasonRunnerFailedStart, msg)
 	}
 	return nil
 }
@@ -427,8 +434,17 @@ func (r *ClaudeEnvironmentReconciler) apply(ctx context.Context, env *selfhosted
 	if err := controllerutil.SetControllerReference(env, obj, r.Scheme); err != nil {
 		return err
 	}
+	kind := obj.GetObjectKind().GroupVersionKind().Kind
+	existing := obj.DeepCopyObject().(client.Object)
+	notFound := apierrors.IsNotFound(r.Get(ctx, client.ObjectKeyFromObject(obj), existing))
 	//nolint:staticcheck // typed-object server-side apply; the replacement API needs generated apply configurations
-	return r.Patch(ctx, obj, client.Apply, client.ForceOwnership, client.FieldOwner(selfhostedv1alpha1.FieldOwner))
+	if err := r.Patch(ctx, obj, client.Apply, client.ForceOwnership, client.FieldOwner(selfhostedv1alpha1.FieldOwner)); err != nil {
+		return err
+	}
+	if notFound {
+		r.Recorder.Event(env, corev1.EventTypeNormal, selfhostedv1alpha1.ReasonCreated, fmt.Sprintf("created %s %s", kind, obj.GetName()))
+	}
+	return nil
 }
 
 // deleteIfOwned removes a stale workload left behind by a mode switch.
@@ -481,7 +497,7 @@ func (r *ClaudeEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.RoleBinding{}).
-		Owns(&selfhostedv1alpha1.ClaudeRunner{}).
+		Owns(&selfhostedv1alpha1.ClaudeRunner{}, builder.WithPredicates(runnerPhaseChanged())).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.environmentsReferencing(indexSecretName))).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.environmentsReferencing(indexConfigMapNames))).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, o client.Object) []reconcile.Request {

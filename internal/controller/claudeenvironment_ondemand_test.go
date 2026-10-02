@@ -98,6 +98,9 @@ var _ = Describe("ClaudeEnvironment on-demand mode", func() {
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
 		key := client.ObjectKeyFromObject(env)
 		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionDegraded), timeout, interval).Should(haveReason(metav1.ConditionTrue, selfhostedv1alpha1.ReasonHookImageUnset))
+		got := &selfhostedv1alpha1.ClaudeEnvironment{}
+		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+		Expect(got.Status.OnDemand).To(BeNil())
 		Consistently(func() bool {
 			return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: orchestratorObjName, Namespace: ns}, &appsv1.Deployment{}))
 		}, 2*time.Second, interval).Should(BeTrue())
