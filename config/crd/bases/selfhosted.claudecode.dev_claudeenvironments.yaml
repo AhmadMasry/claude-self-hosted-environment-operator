@@ -5862,11 +5862,11 @@ spec:
             - message: onDemand requires runner.capacity == 1
               rule: '!has(self.onDemand) || self.runner.capacity == 1'
             - message: useAnthropicGitProxy requires runner.capacity == 1
-              rule: '!self.runner.settings.useAnthropicGitProxy || self.runner.capacity
-                == 1'
+              rule: '!has(self.runner.settings.useAnthropicGitProxy) || !self.runner.settings.useAnthropicGitProxy
+                || self.runner.capacity == 1'
             - message: fixed.persistentWorkspace requires runner.settings.lockToAccount
-              rule: '!has(self.fixed) || !has(self.fixed.persistentWorkspace) || self.runner.settings.lockToAccount
-                != '''''
+              rule: '!has(self.fixed) || !has(self.fixed.persistentWorkspace) || (has(self.runner.settings.lockToAccount)
+                && size(self.runner.settings.lockToAccount) > 0)'
           status:
             description: ClaudeEnvironmentStatus defines the observed state of ClaudeEnvironment.
             properties:

@@ -238,8 +238,8 @@ type OnDemandSpec struct {
 // ClaudeEnvironmentSpec defines the desired state of ClaudeEnvironment.
 // +kubebuilder:validation:XValidation:rule="has(self.fixed) != has(self.onDemand)",message="exactly one of spec.fixed or spec.onDemand must be set"
 // +kubebuilder:validation:XValidation:rule="!has(self.onDemand) || self.runner.capacity == 1",message="onDemand requires runner.capacity == 1"
-// +kubebuilder:validation:XValidation:rule="!self.runner.settings.useAnthropicGitProxy || self.runner.capacity == 1",message="useAnthropicGitProxy requires runner.capacity == 1"
-// +kubebuilder:validation:XValidation:rule="!has(self.fixed) || !has(self.fixed.persistentWorkspace) || self.runner.settings.lockToAccount != ”",message="fixed.persistentWorkspace requires runner.settings.lockToAccount"
+// +kubebuilder:validation:XValidation:rule="!has(self.runner.settings.useAnthropicGitProxy) || !self.runner.settings.useAnthropicGitProxy || self.runner.capacity == 1",message="useAnthropicGitProxy requires runner.capacity == 1"
+// +kubebuilder:validation:XValidation:rule="!has(self.fixed) || !has(self.fixed.persistentWorkspace) || (has(self.runner.settings.lockToAccount) && size(self.runner.settings.lockToAccount) > 0)",message="fixed.persistentWorkspace requires runner.settings.lockToAccount"
 type ClaudeEnvironmentSpec struct {
 	EnvironmentSecretRef SecretKeyRef `json:"environmentSecretRef"`
 	Runner               RunnerSpec   `json:"runner"`

@@ -67,6 +67,10 @@ var _ = Describe("ClaudeEnvironment CEL validation", func() {
 		Entry("persistent workspace without lock", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Fixed.PersistentWorkspace = &selfhostedv1alpha1.PersistentWorkspaceSpec{}
 		}, "requires runner.settings.lockToAccount"),
+		Entry("persistent workspace with empty lock", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Fixed.PersistentWorkspace = &selfhostedv1alpha1.PersistentWorkspaceSpec{}
+			e.Spec.Runner.Settings.LockToAccount = ""
+		}, "requires runner.settings.lockToAccount"),
 		Entry("latest tag", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Runner.Image = "registry.local/runner:latest"
 		}, "must not use :latest"),
@@ -87,9 +91,12 @@ var _ = Describe("ClaudeEnvironment CEL validation", func() {
 		func(mutate func(*selfhostedv1alpha1.ClaudeEnvironment)) {
 			env := baseEnv("valid")
 			mutate(env)
+			customCapacity := env.Spec.Runner.Capacity != 0
 			Expect(k8sClient.Create(ctx, env)).To(Succeed())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, env) })
-			Expect(env.Spec.Runner.Capacity).To(Equal(int32(1)))
+			if !customCapacity {
+				Expect(env.Spec.Runner.Capacity).To(Equal(int32(1)))
+			}
 			Expect(env.Spec.Runner.BaseDir).To(Equal("/workspace"))
 			Expect(*env.Spec.Runner.Settings.HealthPort).To(Equal(int32(8080)))
 			Expect(*env.Spec.Runner.Settings.SessionStopGraceSeconds).To(Equal(int32(5)))
@@ -99,6 +106,7 @@ var _ = Describe("ClaudeEnvironment CEL validation", func() {
 		Entry("digest", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Runner.Image = "registry.local/runner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 		}),
+		Entry("fixed fleet with capacity 4 and no git proxy", func(e *selfhostedv1alpha1.ClaudeEnvironment) { e.Spec.Runner.Capacity = 4 }),
 		Entry("onDemand defaults", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Fixed = nil
 			e.Spec.OnDemand = &selfhostedv1alpha1.OnDemandSpec{}
