@@ -84,7 +84,7 @@ func OrchestratorRole(env *selfhostedv1alpha1.ClaudeEnvironment) *rbacv1.Role {
 		Rules: []rbacv1.PolicyRule{
 			{APIGroups: []string{selfhostedv1alpha1.GroupVersion.Group}, Resources: []string{"claudeenvironments"}, Verbs: []string{"get"}},
 			{APIGroups: []string{selfhostedv1alpha1.GroupVersion.Group}, Resources: []string{"clauderunners"}, Verbs: runnerVerbs},
-			{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"create", "patch"}},
+			{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"create", "patch", "delete"}},
 		},
 	}
 }

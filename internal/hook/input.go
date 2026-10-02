@@ -52,29 +52,29 @@ func ParseEnv(getenv func(string) string) (Input, error) {
 		Environment:    getenv(selfhostedv1alpha1.EnvHookEnvironment),
 		Namespace:      getenv(selfhostedv1alpha1.EnvHookNamespace),
 	}
-	for name, v := range map[string]string{
-		"CLAUDE_RUNNER_WORK_ORDER_FILE":       in.WorkOrderFile,
-		"CLAUDE_RUNNER_ORDER_ID":              in.OrderID,
-		selfhostedv1alpha1.EnvHookEnvironment: in.Environment,
-		selfhostedv1alpha1.EnvHookNamespace:   in.Namespace,
+	for _, req := range []struct{ name, value string }{
+		{"CLAUDE_RUNNER_WORK_ORDER_FILE", in.WorkOrderFile},
+		{"CLAUDE_RUNNER_ORDER_ID", in.OrderID},
+		{selfhostedv1alpha1.EnvHookEnvironment, in.Environment},
+		{selfhostedv1alpha1.EnvHookNamespace, in.Namespace},
 	} {
-		if v == "" {
-			return Input{}, fmt.Errorf("required environment variable %s is not set", name)
+		if req.value == "" {
+			return Input{}, fmt.Errorf("required environment variable %s is not set", req.name)
 		}
 	}
 	if s := getenv("CLAUDE_RUNNER_ATTEMPT"); s != "" {
-		n, err := strconv.Atoi(s)
+		n, err := strconv.ParseInt(s, 10, 32)
 		if err != nil {
 			return Input{}, fmt.Errorf("CLAUDE_RUNNER_ATTEMPT is not an integer: %w", err)
 		}
 		in.Attempt = int32(n)
 	}
 	if s := getenv(selfhostedv1alpha1.EnvHookMaxConcurrentRunners); s != "" {
-		n, err := strconv.Atoi(s)
+		n, err := strconv.ParseInt(s, 10, 32)
 		if err != nil {
 			return Input{}, fmt.Errorf("%s is not an integer: %w", selfhostedv1alpha1.EnvHookMaxConcurrentRunners, err)
 		}
-		in.MaxConcurrentRunners = n
+		in.MaxConcurrentRunners = int(n)
 	}
 	return in, nil
 }

@@ -51,7 +51,7 @@ func TestOrchestratorRBAC(t *testing.T) {
 	wantRules := []rbacv1.PolicyRule{
 		{APIGroups: []string{testAPIGroup}, Resources: []string{"claudeenvironments"}, Verbs: []string{verbGet}},
 		{APIGroups: []string{testAPIGroup}, Resources: []string{"clauderunners"}, Verbs: []string{verbCreate, verbGet}},
-		{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{verbCreate, "patch"}},
+		{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{verbCreate, "patch", "delete"}},
 	}
 	if len(role.Rules) != len(wantRules) {
 		t.Fatalf("rules: got %+v", role.Rules)

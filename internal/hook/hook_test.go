@@ -143,7 +143,9 @@ func TestRunRedeliveryIsIdempotent(t *testing.T) {
 		t.Fatalf("exactly one runner expected, got %d (%v)", len(runners.Items), err)
 	}
 	secret := &corev1.Secret{}
-	_ = c.Get(ctx, types.NamespacedName{Name: testOrder + "-work-order", Namespace: testNS}, secret)
+	if err := c.Get(ctx, types.NamespacedName{Name: testOrder + "-work-order", Namespace: testNS}, secret); err != nil {
+		t.Fatal(err)
+	}
 	if string(secret.Data[selfhostedv1alpha1.WorkOrderSecretKey]) != "jwt-1" {
 		t.Fatal("redelivery must not overwrite the first work order")
 	}
@@ -225,5 +227,62 @@ func TestWriteLogNeverPrintsSecrets(t *testing.T) {
 	}
 	if !strings.Contains(out, `"orderID":"order-abc"`) || !strings.Contains(out, `"exitCode":2`) {
 		t.Fatalf("log missing fields: %s", out)
+	}
+}
+
+func TestRunRedeliveryAtCapacityStillExitsZero(t *testing.T) {
+	ctx := context.Background()
+	own := &selfhostedv1alpha1.ClaudeRunner{ObjectMeta: metav1.ObjectMeta{Name: testOrder, Namespace: testNS,
+		Labels: map[string]string{selfhostedv1alpha1.LabelEnvironment: testEnvName}},
+		Spec:   selfhostedv1alpha1.ClaudeRunnerSpec{EnvironmentRef: selfhostedv1alpha1.LocalObjectRef{Name: testEnvName}, OrderID: testOrder, WorkOrderSecretRef: selfhostedv1alpha1.LocalObjectRef{Name: testOrder + "-work-order"}},
+		Status: selfhostedv1alpha1.ClaudeRunnerStatus{Phase: selfhostedv1alpha1.RunnerRunning}}
+	c := newClient(envObj(), own)
+	in := input()
+	in.MaxConcurrentRunners = 1
+	res := Run(ctx, c, in, []byte("j"), "")
+	if res.ExitCode != ExitSubmitted || res.Outcome != "redelivered" {
+		t.Fatalf("redelivery at cap must exit 0: %+v", res)
+	}
+	secrets := &corev1.SecretList{}
+	if err := c.List(ctx, secrets, client.InNamespace(testNS)); err != nil || len(secrets.Items) != 0 {
+		t.Fatalf("redelivery must create nothing, got %d secrets (%v)", len(secrets.Items), err)
+	}
+}
+
+func TestRunNonRetryableRunnerCreateDeletesSecret(t *testing.T) {
+	ctx := context.Background()
+	gr := schema.GroupResource{Group: "x", Resource: "clauderunners"}
+	c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(envObj()).
+		WithInterceptorFuncs(interceptor.Funcs{Create: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if _, ok := obj.(*selfhostedv1alpha1.ClaudeRunner); ok {
+				return apierrors.NewForbidden(gr, testOrder, errors.New("no"))
+			}
+			return cl.Create(ctx, obj, opts...)
+		}}).Build()
+	res := Run(ctx, c, input(), []byte("j"), "")
+	if res.ExitCode != ExitNonRetryable {
+		t.Fatalf("got %+v", res)
+	}
+	err := c.Get(ctx, types.NamespacedName{Name: testOrder + "-work-order", Namespace: testNS}, &corev1.Secret{})
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("work-order Secret must be deleted, got %v", err)
+	}
+}
+
+func TestRunPatchFailureWarnsAndRedactsInLog(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(envObj()).
+		WithInterceptorFuncs(interceptor.Funcs{Patch: func(context.Context, client.WithWatch, client.Object, client.Patch, ...client.PatchOption) error {
+			return errors.New("denied for someone@example.com")
+		}}).Build()
+	res := Run(ctx, c, input(), []byte("j"), "")
+	if res.ExitCode != ExitSubmitted || res.Warning == "" {
+		t.Fatalf("patch failure must warn but exit 0: %+v", res)
+	}
+	var buf bytes.Buffer
+	WriteLog(&buf, input(), res)
+	out := buf.String()
+	if !strings.Contains(out, `"warning"`) || !strings.Contains(out, "[redacted]") || strings.Contains(out, "someone@example.com") {
+		t.Fatalf("warning must be logged redacted: %s", out)
 	}
 }

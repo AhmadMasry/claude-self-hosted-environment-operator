@@ -71,6 +71,16 @@ func Run(ctx context.Context, c client.Client, in Input, jwt []byte, traceparent
 		return failure(fmt.Errorf("get ClaudeEnvironment %s/%s: %w", in.Namespace, in.Environment, err))
 	}
 
+	existing := &selfhostedv1alpha1.ClaudeRunner{}
+	switch err := c.Get(ctx, types.NamespacedName{Name: in.OrderID, Namespace: in.Namespace}, existing); {
+	case err == nil:
+		res := Result{ExitCode: ExitSubmitted, Outcome: "redelivered", RunnerName: in.OrderID}
+		res.Warning = handOffSecret(ctx, c, existing, builders.WorkOrderSecretName(in.OrderID))
+		return res
+	case !apierrors.IsNotFound(err):
+		return failure(fmt.Errorf("get ClaudeRunner %s/%s: %w", in.Namespace, in.OrderID, err))
+	}
+
 	if in.MaxConcurrentRunners > 0 {
 		active, err := countActiveRunners(ctx, c, in.Namespace, in.Environment)
 		if err != nil {
@@ -122,18 +132,43 @@ func Run(ctx context.Context, c client.Client, in Input, jwt []byte, traceparent
 		if apierrors.IsAlreadyExists(err) {
 			return Result{ExitCode: ExitSubmitted, Outcome: "redelivered", RunnerName: in.OrderID}
 		}
-		return failure(fmt.Errorf("create ClaudeRunner: %w", err))
+		res := failure(fmt.Errorf("create ClaudeRunner: %w", err))
+		if res.ExitCode == ExitNonRetryable {
+			// Do not leave a live work order behind; a retryable failure keeps it for the retry.
+			if delErr := c.Delete(ctx, secret); delErr != nil && !apierrors.IsNotFound(delErr) {
+				res.Err = fmt.Errorf("%w; delete work-order Secret: %w", res.Err, delErr)
+			}
+		}
+		return res
 	}
 
 	// Hand the Secret to the ClaudeRunner so it is collected with it. Best
 	// effort: the environment owner reference already guarantees collection.
-	res := Result{ExitCode: ExitSubmitted, Outcome: "submitted", RunnerName: in.OrderID}
+	return Result{ExitCode: ExitSubmitted, Outcome: "submitted", RunnerName: in.OrderID,
+		Warning: handOffSecret(ctx, c, runner, secretName)}
+}
+
+// handOffSecret makes the runner the Secret's controller owner. It returns a
+// warning, never an error: a missing Secret or failed patch is not fatal.
+func handOffSecret(ctx context.Context, c client.Client, runner *selfhostedv1alpha1.ClaudeRunner, secretName string) string {
+	secret := &corev1.Secret{}
+	if err := c.Get(ctx, types.NamespacedName{Name: secretName, Namespace: runner.Namespace}, secret); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ""
+		}
+		return "could not read the work-order Secret: " + err.Error()
+	}
+	for _, ref := range secret.OwnerReferences {
+		if ref.UID == runner.UID && ref.Kind == "ClaudeRunner" {
+			return ""
+		}
+	}
 	patch := client.MergeFrom(secret.DeepCopy())
 	secret.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(runner, selfhostedv1alpha1.GroupVersion.WithKind("ClaudeRunner"))}
 	if err := c.Patch(ctx, secret, patch); err != nil {
-		res.Warning = "could not hand the work-order Secret to the ClaudeRunner: " + err.Error()
+		return "could not hand the work-order Secret to the ClaudeRunner: " + err.Error()
 	}
-	return res
+	return ""
 }
 
 func countActiveRunners(ctx context.Context, c client.Client, namespace, environment string) (int, error) {
