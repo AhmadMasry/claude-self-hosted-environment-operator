@@ -93,7 +93,7 @@ func Run(ctx context.Context, c client.Client, in Input, jwt []byte, traceparent
 		}
 	}
 
-	envRef := metav1.NewControllerRef(env, selfhostedv1alpha1.GroupVersion.WithKind("ClaudeEnvironment"))
+	envRef := controllerRef(env, "ClaudeEnvironment")
 	labels := map[string]string{
 		selfhostedv1alpha1.LabelEnvironment: in.Environment,
 		selfhostedv1alpha1.LabelOrderID:     in.OrderID,
@@ -155,7 +155,7 @@ func Run(ctx context.Context, c client.Client, in Input, jwt []byte, traceparent
 // gone or a failed patch is not fatal.
 func handOffSecret(ctx context.Context, c client.Client, runner *selfhostedv1alpha1.ClaudeRunner, secretName string) string {
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: runner.Namespace}}
-	ref := metav1.NewControllerRef(runner, selfhostedv1alpha1.GroupVersion.WithKind("ClaudeRunner"))
+	ref := controllerRef(runner, "ClaudeRunner")
 	body, err := json.Marshal(map[string]any{"metadata": map[string]any{"ownerReferences": []metav1.OwnerReference{*ref}}})
 	if err != nil {
 		return "could not build the owner hand-off patch: " + err.Error()
@@ -164,6 +164,17 @@ func handOffSecret(ctx context.Context, c client.Client, runner *selfhostedv1alp
 		return "could not hand the work-order Secret to the ClaudeRunner: " + err.Error()
 	}
 	return ""
+}
+
+// controllerRef is a controller owner reference without blockOwnerDeletion.
+// Setting blockOwnerDeletion requires update on the owner's finalizers
+// subresource under OwnerReferencesPermissionEnforcement (on by default on
+// OpenShift), which the orchestrator Role does not grant; background garbage
+// collection does not need it.
+func controllerRef(owner metav1.Object, kind string) *metav1.OwnerReference {
+	ref := metav1.NewControllerRef(owner, selfhostedv1alpha1.GroupVersion.WithKind(kind))
+	ref.BlockOwnerDeletion = nil
+	return ref
 }
 
 func countActiveRunners(ctx context.Context, c client.Client, namespace, environment string) (int, error) {

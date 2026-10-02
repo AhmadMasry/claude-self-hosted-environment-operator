@@ -112,6 +112,9 @@ func TestRunSubmitsSecretAndRunner(t *testing.T) {
 	if len(runner.OwnerReferences) != 1 || runner.OwnerReferences[0].Kind != "ClaudeEnvironment" || runner.OwnerReferences[0].Controller == nil || !*runner.OwnerReferences[0].Controller {
 		t.Fatalf("runner must be controller-owned by the environment: %+v", runner.OwnerReferences)
 	}
+	if runner.OwnerReferences[0].BlockOwnerDeletion != nil {
+		t.Fatalf("runner owner reference must not set blockOwnerDeletion: %+v", runner.OwnerReferences)
+	}
 	secret := &corev1.Secret{}
 	if err := c.Get(ctx, types.NamespacedName{Name: testOrder + "-work-order", Namespace: testNS}, secret); err != nil {
 		t.Fatal(err)
@@ -121,6 +124,9 @@ func TestRunSubmitsSecretAndRunner(t *testing.T) {
 	}
 	if len(secret.OwnerReferences) != 1 || secret.OwnerReferences[0].Kind != "ClaudeRunner" || secret.OwnerReferences[0].Name != testOrder {
 		t.Fatalf("secret must be handed to the runner: %+v", secret.OwnerReferences)
+	}
+	if secret.OwnerReferences[0].Controller == nil || !*secret.OwnerReferences[0].Controller || secret.OwnerReferences[0].BlockOwnerDeletion != nil {
+		t.Fatalf("secret owner reference must be a controller reference without blockOwnerDeletion: %+v", secret.OwnerReferences)
 	}
 	if secret.Labels[selfhostedv1alpha1.LabelOrderID] != testOrder {
 		t.Fatal("secret labels missing")
