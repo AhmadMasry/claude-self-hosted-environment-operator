@@ -113,6 +113,7 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/manager ./cmd
+	go build -ldflags "-X main.version=$(VERSION)" -o bin/spawn-runner ./cmd/spawn-runner
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
