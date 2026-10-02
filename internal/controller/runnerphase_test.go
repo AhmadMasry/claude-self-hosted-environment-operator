@@ -64,3 +64,27 @@ func TestDerivePhase(t *testing.T) {
 		})
 	}
 }
+
+func TestLostReason(t *testing.T) {
+	if got := lostReason(selfhostedv1alpha1.ReasonSpawnTimeout); got != selfhostedv1alpha1.ReasonSpawnTimeout {
+		t.Fatalf("a timed-out runner whose pod is gone must stay SpawnTimeout, got %s", got)
+	}
+	for _, current := range []string{"", selfhostedv1alpha1.ReasonPodPending, selfhostedv1alpha1.ReasonPodRunning} {
+		if got := lostReason(current); got != selfhostedv1alpha1.ReasonPodLost {
+			t.Fatalf("lostReason(%q) = %s, want PodLost", current, got)
+		}
+	}
+}
+
+func TestSpawnDuration(t *testing.T) {
+	created := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	runner := &selfhostedv1alpha1.ClaudeRunner{ObjectMeta: metav1.ObjectMeta{CreationTimestamp: metav1.NewTime(created)}}
+	now := created.Add(time.Minute)
+	started := metav1.NewTime(created.Add(7 * time.Second))
+	if got := spawnDuration(runner, &corev1.Pod{Status: corev1.PodStatus{StartTime: &started}}, now); got != 7*time.Second {
+		t.Fatalf("with a pod start time: got %s, want 7s", got)
+	}
+	if got := spawnDuration(runner, &corev1.Pod{}, now); got != time.Minute {
+		t.Fatalf("without a pod start time: got %s, want 1m", got)
+	}
+}

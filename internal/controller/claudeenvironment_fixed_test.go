@@ -44,6 +44,7 @@ const (
 	runnerName    = "platform-runner"
 	hooksName     = "hooks"
 	envName       = "platform"
+	runnerImage   = "registry.local/runner:2.1.280"
 )
 
 var nsCounter int
@@ -65,7 +66,7 @@ func fixedEnv(ns string) *selfhostedv1alpha1.ClaudeEnvironment {
 		ObjectMeta: metav1.ObjectMeta{Name: envName, Namespace: ns},
 		Spec: selfhostedv1alpha1.ClaudeEnvironmentSpec{
 			EnvironmentSecretRef: selfhostedv1alpha1.SecretKeyRef{Name: envSecretName},
-			Runner:               selfhostedv1alpha1.RunnerSpec{Image: "registry.local/runner:2.1.280"},
+			Runner:               selfhostedv1alpha1.RunnerSpec{Image: runnerImage},
 			Fixed:                &selfhostedv1alpha1.FixedFleetSpec{Replicas: ptr.To[int32](2)},
 		},
 	}
@@ -381,7 +382,7 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 
 		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "platform-runner-abc", Namespace: ns,
 			Labels: builders.RunnerSelectorLabels(env)},
-			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: builders.RunnerContainerName, Image: "registry.local/runner:2.1.280"}}}}
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: builders.RunnerContainerName, Image: runnerImage}}}}
 		Expect(k8sClient.Create(ctx, pod)).To(Succeed())
 		now := metav1.Now()
 		pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: builders.RunnerContainerName, RestartCount: 3,

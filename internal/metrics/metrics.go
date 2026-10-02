@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"k8s.io/apimachinery/pkg/api/meta"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
@@ -107,6 +108,12 @@ func ObserveSpawn(namespace, environment string, d time.Duration) {
 // CountRunner increments the runner lifecycle counter.
 func CountRunner(namespace, environment, outcome string) {
 	runnersTotal.WithLabelValues(namespace, environment, outcome).Inc()
+}
+
+// RunnersTotalForTest reads one runners_total series; tests outside this
+// package use it.
+func RunnersTotalForTest(namespace, environment, outcome string) float64 {
+	return testutil.ToFloat64(runnersTotal.WithLabelValues(namespace, environment, outcome))
 }
 
 // ForgetEnvironment drops every series for a deleted environment.

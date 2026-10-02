@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/metrics"
 )
 
 func onDemandEnvObj(ns string) *selfhostedv1alpha1.ClaudeEnvironment {
@@ -183,6 +184,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
 		Expect(got.Status.Reason).To(Equal(selfhostedv1alpha1.ReasonWorkOrderMissing))
 		Consistently(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Pod{})) }, 2*time.Second, interval).Should(BeTrue())
+		Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeFailed)).To(Equal(1.0))
 	})
 
 	It("waits for a work-order Secret that lands after the ClaudeRunner", func() {
@@ -246,6 +248,46 @@ var _ = Describe("ClaudeRunner controller", func() {
 		Consistently(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Pod{})) }, 2*time.Second, interval).Should(BeTrue())
 	})
 
+	It("refuses a runner whose controller owner has the environment's name but another UID", func() {
+		ns := newNamespace(ctx)
+		env := onDemandEnvObj(ns)
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-12"))).To(Succeed())
+		r := ownedBy(runnerObj(ns, "order-12"), env)
+		r.OwnerReferences[0].UID = types.UID("00000000-0000-0000-0000-000000000000")
+		Expect(k8sClient.Create(ctx, r)).To(Succeed())
+		key := client.ObjectKeyFromObject(r)
+
+		Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerFailed))
+		got := &selfhostedv1alpha1.ClaudeRunner{}
+		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+		Expect(got.Status.Reason).To(Equal(selfhostedv1alpha1.ReasonEnvironmentMismatch))
+		Expect(got.Status.Message).To(ContainSubstring("UID"))
+		Consistently(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Pod{})) }, 2*time.Second, interval).Should(BeTrue())
+	})
+
+	It("adopts a pod that already exists without counting or announcing a second creation", func() {
+		ns := newNamespace(ctx)
+		env := onDemandEnvObj(ns)
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-13"))).To(Succeed())
+		// No role label, so the manager's pod cache never sees it and the
+		// create runs into AlreadyExists.
+		Expect(k8sClient.Create(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "order-13", Namespace: ns},
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "runner", Image: runnerImage}}}})).To(Succeed())
+		r := ownedBy(runnerObj(ns, "order-13"), env)
+		Expect(k8sClient.Create(ctx, r)).To(Succeed())
+		key := client.ObjectKeyFromObject(r)
+
+		Eventually(func() string {
+			got := &selfhostedv1alpha1.ClaudeRunner{}
+			_ = k8sClient.Get(ctx, key, got)
+			return got.Status.PodName
+		}, timeout, interval).Should(Equal("order-13"))
+		Consistently(eventCount(ctx, ns, "PodCreated"), 2*time.Second, interval).Should(Equal(int32(0)))
+		Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeCreated)).To(Equal(0.0))
+	})
+
 	It("fails cleanly when the environment is missing", func() {
 		ns := newNamespace(ctx)
 		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-6"))).To(Succeed())
@@ -293,5 +335,49 @@ var _ = Describe("ClaudeRunner controller", func() {
 			}
 			return false
 		}, timeout, interval).Should(BeTrue())
+	})
+
+	It("stops continuing the hook's trace once the runner is terminal", func() {
+		const traceID = "5bf92f3577b34da6a3ce929d0e0e4737"
+		ns := newNamespace(ctx)
+		env := onDemandEnvObj(ns)
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		// No work-order Secret and a clock past the spawn deadline: the runner fails at once.
+		clock.Shift(5 * time.Minute)
+		DeferCleanup(func() { clock.Shift(0) })
+		r := ownedBy(runnerObj(ns, "order-14"), env)
+		r.Annotations = map[string]string{selfhostedv1alpha1.AnnotationTraceparent: "00-" + traceID + "-00f067aa0ba902b7-01"}
+		Expect(k8sClient.Create(ctx, r)).To(Succeed())
+		key := client.ObjectKeyFromObject(r)
+		Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerFailed))
+
+		// spans counts this runner's reconcile spans, or only those in the hook's trace.
+		spans := func(inTrace bool) int {
+			n := 0
+			for _, s := range spanExporter.GetSpans() {
+				if s.Name != "clauderunner.reconcile" || (inTrace && s.SpanContext.TraceID().String() != traceID) {
+					continue
+				}
+				for _, a := range s.Attributes {
+					if a.Key == "order_id" && a.Value.AsString() == "order-14" {
+						n++
+					}
+				}
+			}
+			return n
+		}
+		// Let the reconciles of the transition itself settle.
+		Eventually(func() bool {
+			a := spans(false)
+			time.Sleep(time.Second)
+			return spans(false) == a
+		}, timeout, interval).Should(BeTrue())
+		allBefore, tracedBefore := spans(false), spans(true)
+
+		Expect(k8sClient.Get(ctx, key, r)).To(Succeed())
+		r.Annotations["test/poke"] = "1"
+		Expect(k8sClient.Update(ctx, r)).To(Succeed())
+		Eventually(func() int { return spans(false) }, timeout, interval).Should(BeNumerically(">", allBefore))
+		Expect(spans(true)).To(Equal(tracedBefore))
 	})
 })

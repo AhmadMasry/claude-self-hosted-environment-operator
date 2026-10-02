@@ -33,6 +33,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
@@ -74,7 +75,11 @@ func (r *ClaudeRunnerReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err := r.Get(ctx, req.NamespacedName, runner); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	ctx = telemetry.ContextWithTraceparent(ctx, runner.Annotations[selfhostedv1alpha1.AnnotationTraceparent])
+	if !runner.Status.Phase.IsTerminal() {
+		ctx = telemetry.ContextWithTraceparent(ctx, runner.Annotations[selfhostedv1alpha1.AnnotationTraceparent])
+	}
+	log := logf.FromContext(ctx).WithValues("orderID", runner.Spec.OrderID, "sessionID", runner.Spec.SessionID)
+	ctx = logf.IntoContext(ctx, log)
 	ctx, span := telemetry.StartSpan(ctx, "clauderunner.reconcile",
 		attribute.String("k8s.namespace.name", req.Namespace), attribute.String("order_id", runner.Spec.OrderID))
 	defer span.End()
@@ -92,6 +97,9 @@ func (r *ClaudeRunnerReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	before := runner.Status.DeepCopy()
 	res, err := r.reconcile(ctx, runner)
 	runner.Status.ObservedGeneration = runner.Generation
+	if before.Phase != runner.Status.Phase {
+		log.Info("Runner phase changed", "from", before.Phase, "to", runner.Status.Phase)
+	}
 	if !equality.Semantic.DeepEqual(before, &runner.Status) {
 		if uerr := r.Status().Update(ctx, runner); uerr != nil {
 			if apierrors.IsConflict(uerr) {
@@ -136,16 +144,21 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		}
 		if pod == nil {
 			// Never re-create: the pod carried a single-use work order.
-			r.fail(runner, selfhostedv1alpha1.ReasonPodLost, fmt.Sprintf("runner pod %s disappeared before it finished", runner.Status.PodName))
+			r.fail(runner, lostReason(runner.Status.Reason), fmt.Sprintf("runner pod %s disappeared before it finished", runner.Status.PodName))
 			return ctrl.Result{}, nil
 		}
 	}
 	ph := derivePhase(pod, r.now())
 	runner.Status.PodName = runner.Name
-	runner.Status.Phase, runner.Status.Reason, runner.Status.Message = ph.Phase, ph.Reason, ph.Message
 	if ph.StartedAt != nil {
 		runner.Status.StartedAt = ph.StartedAt
 	}
+	if ph.Phase == selfhostedv1alpha1.RunnerFailed {
+		runner.Status.FinishedAt = ph.FinishedAt
+		r.fail(runner, ph.Reason, ph.Message)
+		return r.expire(ctx, runner)
+	}
+	runner.Status.Phase, runner.Status.Reason, runner.Status.Message = ph.Phase, ph.Reason, ph.Message
 
 	switch ph.Phase {
 	case selfhostedv1alpha1.RunnerPending:
@@ -156,6 +169,16 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 			return ctrl.Result{RequeueAfter: deadline.Sub(now) + time.Second}, nil
 		}
 		msg := fmt.Sprintf("pod did not start within %d seconds (%s: %s)", spawnSeconds(env), ph.Reason, ph.Message)
+		logf.FromContext(ctx).Info("Runner spawn timed out", "pod", pod.Name)
+		// Store the reason before the pod goes, so a pass that finds the pod
+		// gone after a lost status update still reports SpawnTimeout.
+		runner.Status.Reason, runner.Status.Message = selfhostedv1alpha1.ReasonSpawnTimeout, msg
+		if err := r.Status().Update(ctx, runner); err != nil {
+			if apierrors.IsConflict(err) {
+				return ctrl.Result{RequeueAfter: time.Second}, nil
+			}
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 		if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
 			return ctrl.Result{}, err
 		}
@@ -164,25 +187,35 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		return r.expire(ctx, runner)
 	case selfhostedv1alpha1.RunnerRunning:
 		if !wasRunning {
-			metrics.ObserveSpawn(runner.Namespace, runner.Spec.EnvironmentRef.Name, r.now().Sub(runner.CreationTimestamp.Time))
+			metrics.ObserveSpawn(runner.Namespace, runner.Spec.EnvironmentRef.Name, spawnDuration(runner, pod, r.now()))
 		}
 		r.setReady(runner, metav1.ConditionTrue, ph.Reason, "")
 		return ctrl.Result{}, nil
-	default: // terminal
-		outcome := metrics.OutcomeFailed
-		if ph.Phase == selfhostedv1alpha1.RunnerSucceeded {
-			outcome = metrics.OutcomeSucceeded
-		}
-		metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, outcome)
+	default: // Succeeded; a failed pod went through fail above
+		metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeSucceeded)
 		runner.Status.FinishedAt = ph.FinishedAt
 		r.setReady(runner, metav1.ConditionFalse, ph.Reason, ph.Message)
-		if ph.Phase == selfhostedv1alpha1.RunnerFailed {
-			r.Recorder.Event(runner, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonRunnerFailed, "runner finished: "+ph.Reason)
-		} else {
-			r.Recorder.Event(runner, corev1.EventTypeNormal, selfhostedv1alpha1.ReasonRunnerSucceeded, "runner finished: "+ph.Reason)
-		}
+		r.Recorder.Event(runner, corev1.EventTypeNormal, selfhostedv1alpha1.ReasonRunnerSucceeded, "runner finished: "+ph.Reason)
 		return r.expire(ctx, runner)
 	}
+}
+
+// lostReason is the failure reason for a runner whose pod is gone: a runner
+// that already timed out keeps SpawnTimeout, any other reports PodLost.
+func lostReason(current string) string {
+	if current == selfhostedv1alpha1.ReasonSpawnTimeout {
+		return selfhostedv1alpha1.ReasonSpawnTimeout
+	}
+	return selfhostedv1alpha1.ReasonPodLost
+}
+
+// spawnDuration is the time from runner creation to the pod starting, or to
+// now when the pod reports no start time.
+func spawnDuration(runner *selfhostedv1alpha1.ClaudeRunner, pod *corev1.Pod, now time.Time) time.Duration {
+	if pod.Status.StartTime != nil {
+		return pod.Status.StartTime.Sub(runner.CreationTimestamp.Time)
+	}
+	return now.Sub(runner.CreationTimestamp.Time)
 }
 
 // ownerMismatch returns why the runner may not start a pod from env, or "".
@@ -193,6 +226,9 @@ func ownerMismatch(runner *selfhostedv1alpha1.ClaudeRunner, env *selfhostedv1alp
 	owner := metav1.GetControllerOf(runner)
 	if owner == nil || owner.APIVersion != selfhostedv1alpha1.GroupVersion.String() || owner.Kind != "ClaudeEnvironment" || owner.Name != env.Name {
 		return fmt.Sprintf("ClaudeRunner is not controlled by ClaudeEnvironment %q named in spec.environmentRef", env.Name)
+	}
+	if owner.UID != env.UID {
+		return fmt.Sprintf("controller owner UID does not match ClaudeEnvironment %q", env.Name)
 	}
 	if env.Spec.OnDemand == nil {
 		return fmt.Sprintf("ClaudeEnvironment %q is not in on-demand mode", env.Name)
@@ -243,9 +279,23 @@ func (r *ClaudeRunnerReconciler) createPod(ctx context.Context, env *selfhostedv
 	if err := controllerutil.SetControllerReference(runner, pod, r.Scheme); err != nil {
 		return nil, err
 	}
-	if err := r.Create(ctx, pod); err != nil && !apierrors.IsAlreadyExists(err) {
-		return nil, err
+	if err := r.Create(ctx, pod); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return nil, err
+		}
+		// A pod the cache had not seen yet: use it, it was counted when created.
+		existing := &corev1.Pod{}
+		key := client.ObjectKeyFromObject(pod)
+		err = r.Get(ctx, key, existing)
+		if apierrors.IsNotFound(err) {
+			err = r.Reader.Get(ctx, key, existing)
+		}
+		if err != nil {
+			return nil, err
+		}
+		return existing, nil
 	}
+	logf.FromContext(ctx).Info("Created runner pod", "pod", pod.Name)
 	metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeCreated)
 	r.Recorder.Event(runner, corev1.EventTypeNormal, "PodCreated", "created runner pod "+pod.Name)
 	return pod, nil
@@ -285,6 +335,7 @@ func (r *ClaudeRunnerReconciler) expire(ctx context.Context, runner *selfhostedv
 	if remaining > 0 {
 		return ctrl.Result{RequeueAfter: remaining}, nil
 	}
+	logf.FromContext(ctx).Info("Deleting expired runner")
 	return ctrl.Result{}, client.IgnoreNotFound(r.Delete(ctx, runner))
 }
 
@@ -307,6 +358,9 @@ func (r *ClaudeRunnerReconciler) finalize(ctx context.Context, runner *selfhoste
 }
 
 func (r *ClaudeRunnerReconciler) fail(runner *selfhostedv1alpha1.ClaudeRunner, reason, msg string) {
+	if runner.Status.Phase != selfhostedv1alpha1.RunnerFailed {
+		metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeFailed)
+	}
 	runner.Status.Phase, runner.Status.Reason, runner.Status.Message = selfhostedv1alpha1.RunnerFailed, reason, msg
 	if runner.Status.FinishedAt == nil {
 		now := metav1.NewTime(r.now())
