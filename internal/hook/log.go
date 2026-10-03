@@ -19,13 +19,10 @@ package hook
 import (
 	"encoding/json"
 	"io"
-	"regexp"
 	"time"
-)
 
-// sensitive matches emails, JWTs and Anthropic-issued credentials so an API
-// error message can never carry them into the orchestrator log.
-var sensitive = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|eyJ[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){1,2}|sk-ant-[A-Za-z0-9_-]+|ccenvkey_[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]{20,}`)
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/redact"
+)
 
 type logLine struct {
 	Time       string `json:"ts"`
@@ -53,5 +50,5 @@ func WriteLog(w io.Writer, in Input, res Result) {
 
 // Redact replaces credential-shaped substrings with a marker.
 func Redact(s string) string {
-	return sensitive.ReplaceAllString(s, "[redacted]")
+	return redact.String(s)
 }

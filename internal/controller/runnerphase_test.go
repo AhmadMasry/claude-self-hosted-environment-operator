@@ -44,6 +44,9 @@ func TestDerivePhase(t *testing.T) {
 		{"failed with redaction", podIn(corev1.PodFailed, corev1.ContainerStatus{State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, Reason: "Error", FinishedAt: end,
 			Message: "[runner:fatal] bad token for someone@example.com"}}}),
 			selfhostedv1alpha1.RunnerFailed, selfhostedv1alpha1.ReasonPodFailed, "exit code 1", true, true},
+		{"failed with a bare JWT", podIn(corev1.PodFailed, corev1.ContainerStatus{State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, Reason: "StartError", FinishedAt: end,
+			Message: "[runner:fatal] token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9 rejected"}}}),
+			selfhostedv1alpha1.RunnerFailed, selfhostedv1alpha1.ReasonPodFailed, "[redacted]", true, true},
 		{"unknown", podIn(corev1.PodUnknown, corev1.ContainerStatus{}), selfhostedv1alpha1.RunnerFailed, selfhostedv1alpha1.ReasonPodFailed, "Unknown", true, true},
 	}
 	for _, tc := range cases {
@@ -55,8 +58,8 @@ func TestDerivePhase(t *testing.T) {
 			if tc.contain != "" && !strings.Contains(got.Message, tc.contain) {
 				t.Fatalf("message %q lacks %q", got.Message, tc.contain)
 			}
-			if strings.Contains(got.Message, "@example.com") {
-				t.Fatal("message leaked an email")
+			if strings.Contains(got.Message, "@example.com") || strings.Contains(got.Message, "eyJ") {
+				t.Fatal("message leaked a credential")
 			}
 			if (got.StartedAt != nil) != tc.started || (got.FinishedAt != nil) != tc.ended {
 				t.Fatalf("timestamps: started=%v ended=%v", got.StartedAt != nil, got.FinishedAt != nil)

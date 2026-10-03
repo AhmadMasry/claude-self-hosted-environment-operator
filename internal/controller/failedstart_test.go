@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/redact"
 )
 
 var testNow = time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
@@ -57,9 +58,11 @@ func TestDetectFailedStart(t *testing.T) {
 		{"long multibyte fatal line", []corev1.Pod{podWithRestart(3, time.Second, long)}, true, "[runner:fatal] aaa"},
 		{"no message", []corev1.Pod{podWithRestart(3, 1*time.Second, "")}, true, "kubectl logs --previous"},
 		{"arbitrary last log line is not forwarded", []corev1.Pod{podWithRestart(3, time.Second, "starting\nsigned in as dev@example.com")}, true, "kubectl logs --previous"},
-		{"email in a fatal line is redacted", []corev1.Pod{podWithRestart(3, time.Second, "[runner:fatal] account dev.ops+ci@example.co.uk is not allowed")}, true, redactedMarker},
-		{"JWT in a fatal line is redacted", []corev1.Pod{podWithRestart(3, time.Second, "error: token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl rejected")}, true, redactedMarker},
-		{"keys in a fatal line are redacted", []corev1.Pod{podWithRestart(3, time.Second, "[runner:fatal] bad key sk-ant-api03-AbC_d-1 or ccenvkey_xyz-1")}, true, redactedMarker},
+		{"email in a fatal line is redacted", []corev1.Pod{podWithRestart(3, time.Second, "[runner:fatal] account dev.ops+ci@example.co.uk is not allowed")}, true, redact.Marker},
+		{"JWT in a fatal line is redacted", []corev1.Pod{podWithRestart(3, time.Second, "error: token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl rejected")}, true, redact.Marker},
+		{"bare JWT in a fatal line is redacted", []corev1.Pod{podWithRestart(3, time.Second, "[runner:fatal] token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9 rejected")}, true, redact.Marker},
+		{"two-segment JWT in a fatal line is redacted", []corev1.Pod{podWithRestart(3, time.Second, "error: token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0 rejected")}, true, redact.Marker},
+		{"keys in a fatal line are redacted", []corev1.Pod{podWithRestart(3, time.Second, "[runner:fatal] bad key sk-ant-api03-AbC_d-1 or ccenvkey_xyz-1")}, true, redact.Marker},
 		{"other container ignored", func() []corev1.Pod {
 			p := podWithRestart(5, time.Second, fatal)
 			p.Status.ContainerStatuses[0].Name = "sidecar"

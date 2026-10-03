@@ -2,7 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/redact"
 )
 
 const (
@@ -22,16 +22,8 @@ const (
 	failedStartMaxRunDuration = 60 * time.Second
 	failedStartWindow         = 10 * time.Minute
 	failedStartMessageLimit   = 200
-	redactedMarker            = "[redacted]"
 	failedStartNoMessageHint  = "no termination message; run `kubectl logs --previous` on the pod"
 )
-
-// secretPattern matches material that must never reach a condition or event:
-// email addresses, JWTs, Anthropic API keys and environment keys.
-var secretPattern = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}` +
-	`|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+` +
-	`|sk-ant-[A-Za-z0-9_-]+` +
-	`|ccenvkey_[A-Za-z0-9_-]+`)
 
 // detectFailedStart implements the product's definition of a failed start: the
 // runner exited non-zero within a minute of starting, at least three times,
@@ -75,15 +67,10 @@ func fatalLine(msg string) string {
 	for _, line := range slices.Backward(strings.Split(msg, "\n")) {
 		l := strings.TrimSpace(line)
 		if strings.Contains(l, "[runner:fatal]") || strings.HasPrefix(l, "error:") {
-			return truncate(redact(l))
+			return truncate(redact.String(l))
 		}
 	}
 	return failedStartNoMessageHint
-}
-
-// redact replaces email addresses, JWTs and keys with [redacted].
-func redact(s string) string {
-	return secretPattern.ReplaceAllString(s, redactedMarker)
 }
 
 func truncate(s string) string {
