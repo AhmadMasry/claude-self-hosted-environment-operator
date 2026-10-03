@@ -52,6 +52,11 @@ func odReady(g Gomega) {
 func upgradeSpecs() {
 	fromInstaller := os.Getenv("UPGRADE_FROM_INSTALLER")
 	fromImage := os.Getenv("UPGRADE_FROM_IMAGE")
+	// The previous revision is the merge-base with master, or HEAD~1 once this
+	// work is on master. The specs must hold both when it predates the
+	// reserved-path rule and the hook timeout variable and when it already
+	// carries them, so BeforeAll records which case applies.
+	var previousRejectsInvalid, previousHasHookTimeoutEnv bool
 
 	Context("Upgrade from the previous revision", func() {
 		BeforeAll(func() {
@@ -71,9 +76,14 @@ func upgradeSpecs() {
 			_, _ = utils.Run(exec.Command("kubectl", "create", "ns", upgradeNamespace))
 			_, err = utils.Run(exec.Command("kubectl", "label", "ns", upgradeNamespace, "pod-security.kubernetes.io/enforce=restricted", "--overwrite"))
 			Expect(err).NotTo(HaveOccurred())
-			By("confirming the previous CRD accepts a reserved-path volumeMount")
 			_, err = utils.Run(exec.Command("kubectl", "apply", "--dry-run=server", "-n", upgradeNamespace, "-f", testdataPath("invalid-env.yaml")))
-			Expect(err).NotTo(HaveOccurred(), "the previous revision must not carry the reserved-path rule")
+			previousRejectsInvalid = err != nil
+			if previousRejectsInvalid {
+				By("previous revision already rejects a reserved-path volumeMount; asserting only the post-upgrade state")
+				Expect(err.Error()).To(ContainSubstring("volumeMounts must not target /etc/claude, /home/runner or /tmp"))
+			} else {
+				By("previous revision accepts a reserved-path volumeMount; asserting the accept-to-reject transition")
+			}
 			_, err = utils.Run(exec.Command("kubectl", "create", "secret", "generic", "-n", upgradeNamespace,
 				"claude-env-secret", "--from-literal=environment-secret=ccenvkey_e2e"))
 			Expect(err).NotTo(HaveOccurred())
@@ -99,7 +109,12 @@ func upgradeSpecs() {
 			Eventually(odReady, 3*time.Minute, 5*time.Second).Should(Succeed())
 			out, err := kubectlOD("get", "deploy", odOrchestrator, "-o", "jsonpath={.spec.template.spec.containers[0].env[*].name}")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(out).NotTo(ContainSubstring(hookTimeoutEnv), "the previous revision must not carry the hook timeout variable")
+			previousHasHookTimeoutEnv = strings.Contains(out, hookTimeoutEnv)
+			if previousHasHookTimeoutEnv {
+				By("previous orchestrator template already carries the hook timeout variable; asserting only the post-upgrade state")
+			} else {
+				By("previous orchestrator template lacks the hook timeout variable; asserting the absent-to-present transition")
+			}
 		})
 
 		AfterAll(func() {
@@ -158,7 +173,11 @@ func upgradeSpecs() {
 			events, err = kubectlOD("get", "events", "--field-selector=reason=FailedCreate", "-o", "name")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(events)).To(BeEmpty())
-			By("asserting the new manager still rejects an invalid environment")
+			if previousRejectsInvalid {
+				By("asserting the new manager still rejects an invalid environment")
+			} else {
+				By("asserting the new CRD now rejects an invalid environment the previous one accepted")
+			}
 			_, err = utils.Run(exec.Command("kubectl", "apply", "--dry-run=server", "-n", upgradeNamespace, "-f", testdataPath("invalid-env.yaml")))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("volumeMounts must not target /etc/claude, /home/runner or /tmp"))

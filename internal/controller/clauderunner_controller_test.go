@@ -405,6 +405,11 @@ var _ = Describe("ClaudeRunner controller", func() {
 		Entry("without a controller owner", func(s *corev1.Secret) {
 			s.OwnerReferences = nil
 		}),
+		Entry("controlled by a ClaudeRunner with a foreign UID", func(s *corev1.Secret) {
+			s.OwnerReferences[0].Kind = "ClaudeRunner"
+			s.OwnerReferences[0].Name = "order-17"
+			s.OwnerReferences[0].UID = types.UID("00000000-0000-0000-0000-000000000000")
+		}),
 	)
 
 	It("accepts a work order already handed to the ClaudeRunner", func() {

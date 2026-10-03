@@ -210,6 +210,8 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 
 // lostReason is the failure reason for a runner whose pod is gone: a runner
 // that already timed out keeps SpawnTimeout, any other reports PodLost.
+// SpawnTimeout here covers runners persisted by a pre-upgrade manager as
+// Pending with Reason SpawnTimeout, which the current code no longer writes.
 func lostReason(current string) string {
 	if current == selfhostedv1alpha1.ReasonSpawnTimeout {
 		return selfhostedv1alpha1.ReasonSpawnTimeout
@@ -279,7 +281,10 @@ func (r *ClaudeRunnerReconciler) awaitWorkOrder(ctx context.Context, env *selfho
 // workOrderBelongs reports whether secret is a work order the hook made for
 // env: labelled with the environment and controlled by env or, after the
 // hook's hand-off, by runner. The orchestrator identity can name any Secret in
-// the namespace in spec.workOrderSecretRef; only these may be mounted.
+// the namespace in spec.workOrderSecretRef; only these may be mounted. This
+// boundary holds together with the orchestrator admission policy: without it,
+// an orchestrator Role with Secret patch could relabel and re-own another
+// Secret (see docs/hardening.md).
 func workOrderBelongs(secret *corev1.Secret, env *selfhostedv1alpha1.ClaudeEnvironment, runner *selfhostedv1alpha1.ClaudeRunner) bool {
 	if secret.Labels[selfhostedv1alpha1.LabelEnvironment] != runner.Spec.EnvironmentRef.Name {
 		return false
