@@ -56,6 +56,9 @@ const (
 	requeueAfterUserFix = 30 * time.Second
 	resyncPeriod        = 10 * time.Minute
 
+	// defaultHookTimeoutSeconds is the CRD default of hookTimeoutSeconds.
+	defaultHookTimeoutSeconds = 60
+
 	indexSecretName     = "spec.environmentSecretRef.name"
 	indexConfigMapNames = "spec.runner.configMapNames"
 )
@@ -130,7 +133,7 @@ func (r *ClaudeEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	if !meta.IsStatusConditionTrue(before.Conditions, selfhostedv1alpha1.ConditionFleetAvailable) &&
 		meta.IsStatusConditionTrue(env.Status.Conditions, selfhostedv1alpha1.ConditionFleetAvailable) {
-		r.Recorder.Event(env, corev1.EventTypeNormal, selfhostedv1alpha1.ReasonFleetAvailable, "runner fleet is available")
+		pass.event(r.Recorder, env, corev1.EventTypeNormal, selfhostedv1alpha1.ReasonFleetAvailable, "runner fleet is available")
 	}
 
 	if !equality.Semantic.DeepEqual(before, &env.Status) {
@@ -194,8 +197,8 @@ func (r *ClaudeEnvironmentReconciler) withNetworkPolicy(ctx context.Context, env
 	return res, nil
 }
 
-// reconcileNetworkPolicy applies or removes the egress policies. Apply and
-// endpoint-read failures mark the fleet unavailable. In on-demand mode the
+// reconcileNetworkPolicy applies or removes the egress policies. Apply,
+// delete and endpoint-read failures mark the fleet unavailable. In on-demand mode the
 // API server policy is applied before the default-deny policy, so a failure
 // never leaves the orchestrator cut off from the API server.
 func (r *ClaudeEnvironmentReconciler) reconcileNetworkPolicy(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) error {
@@ -204,16 +207,22 @@ func (r *ClaudeEnvironmentReconciler) reconcileNetworkPolicy(ctx context.Context
 	apiServer := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: builders.APIServerNetworkPolicyName(env), Namespace: env.Namespace}}
 	if np == nil || !np.Enabled {
 		if err := r.deleteIfOwned(ctx, env, &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: egress.Name, Namespace: egress.Namespace}}); err != nil {
-			return err
+			return r.applyFailed(env, pass, "NetworkPolicy", err)
 		}
-		return r.deleteIfOwned(ctx, env, apiServer)
+		if err := r.deleteIfOwned(ctx, env, apiServer); err != nil {
+			return r.applyFailed(env, pass, "NetworkPolicy", err)
+		}
+		return nil
 	}
 	// Only on-demand environments have an orchestrator that needs the API server.
 	if env.Spec.OnDemand == nil {
 		if err := r.apply(ctx, env, egress); err != nil {
 			return r.applyFailed(env, pass, "NetworkPolicy", err)
 		}
-		return r.deleteIfOwned(ctx, env, apiServer)
+		if err := r.deleteIfOwned(ctx, env, apiServer); err != nil {
+			return r.applyFailed(env, pass, "NetworkPolicy", err)
+		}
+		return nil
 	}
 	endpoints := &corev1.Endpoints{} //nolint:staticcheck // the ruled design reads the single default/kubernetes object
 	if err := r.Reader.Get(ctx, types.NamespacedName{Namespace: metav1.NamespaceDefault, Name: "kubernetes"}, endpoints); err != nil {
@@ -435,7 +444,7 @@ func (r *ClaudeEnvironmentReconciler) sweepOrphanedWorkOrders(ctx context.Contex
 	for i := range runners.Items {
 		referenced[runners.Items[i].Spec.WorkOrderSecretRef.Name] = true
 	}
-	deadline := time.Duration(env.Spec.OnDemand.Orchestrator.ExpectedSpawnSeconds) * time.Second
+	deadline := workOrderSweepAge(env)
 	for i := range secrets.Items {
 		s := &secrets.Items[i]
 		if s.Name == env.Spec.EnvironmentSecretRef.Name || !strings.HasSuffix(s.Name, selfhostedv1alpha1.WorkOrderSecretSuffix) ||
@@ -467,6 +476,18 @@ func (r *ClaudeEnvironmentReconciler) sweepOrphanedWorkOrders(ctx context.Contex
 		r.Recorder.Event(env, corev1.EventTypeNormal, selfhostedv1alpha1.ReasonOrphanedWorkOrderDeleted, "deleted unreferenced work-order Secret "+s.Name)
 	}
 	return nil
+}
+
+// workOrderSweepAge is how old an unreferenced work-order Secret must be
+// before the sweep deletes it: the longer of the spawn deadline and the hook
+// timeout, each with its default when unset, so a hook still inside its
+// timeout never loses its Secret before it creates the ClaudeRunner.
+func workOrderSweepAge(env *selfhostedv1alpha1.ClaudeEnvironment) time.Duration {
+	hook := int32(defaultHookTimeoutSeconds)
+	if t := env.Spec.OnDemand.Orchestrator.HookTimeoutSeconds; t > 0 {
+		hook = t
+	}
+	return time.Duration(max(spawnSeconds(env), hook)) * time.Second
 }
 
 func (r *ClaudeEnvironmentReconciler) applyOrchestratorRBAC(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) error {

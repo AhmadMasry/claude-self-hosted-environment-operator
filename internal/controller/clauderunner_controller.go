@@ -113,6 +113,12 @@ func (r *ClaudeRunnerReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhostedv1alpha1.ClaudeRunner) (ctrl.Result, error) {
 	if runner.Status.Phase.IsTerminal() {
+		if runner.Status.Reason == selfhostedv1alpha1.ReasonSpawnTimeout {
+			// The pass that timed the runner out may have failed to delete the pod.
+			if _, err := r.deleteOwnPod(ctx, runner); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 		return r.expire(ctx, runner)
 	}
 
@@ -135,7 +141,7 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		if res, wait, werr := r.awaitWorkOrder(ctx, env, runner); wait || werr != nil {
 			return res, werr
 		}
-		if pod, err = r.createPod(ctx, env, runner); err != nil {
+		if pod, err = r.createPod(ctx, env, runner); err != nil || pod == nil {
 			return ctrl.Result{}, err
 		}
 	} else {
@@ -170,20 +176,22 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		}
 		msg := fmt.Sprintf("pod did not start within %d seconds (%s: %s)", spawnSeconds(env), ph.Reason, ph.Message)
 		logf.FromContext(ctx).Info("Runner spawn timed out", "pod", pod.Name)
-		// Store the reason before the pod goes, so a pass that finds the pod
-		// gone after a lost status update still reports SpawnTimeout.
-		runner.Status.Reason, runner.Status.Message = selfhostedv1alpha1.ReasonSpawnTimeout, msg
+		// Store Failed before the pod goes and count it only once stored, so
+		// neither a lost update here nor one after the delete counts it twice:
+		// every later pass sees a terminal runner.
+		r.markFailed(runner, selfhostedv1alpha1.ReasonSpawnTimeout, msg)
 		if err := r.Status().Update(ctx, runner); err != nil {
 			if apierrors.IsConflict(err) {
 				return ctrl.Result{RequeueAfter: time.Second}, nil
 			}
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
-		if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
+		metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeFailed)
+		metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeSpawnTimeout)
+		r.Recorder.Event(runner, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonSpawnTimeout, msg)
+		if _, err := r.deleteOwnPod(ctx, runner); err != nil {
 			return ctrl.Result{}, err
 		}
-		r.fail(runner, selfhostedv1alpha1.ReasonSpawnTimeout, msg)
-		metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeSpawnTimeout)
 		return r.expire(ctx, runner)
 	case selfhostedv1alpha1.RunnerRunning:
 		if !wasRunning {
@@ -243,8 +251,14 @@ func ownerMismatch(runner *selfhostedv1alpha1.ClaudeRunner, env *selfhostedv1alp
 func (r *ClaudeRunnerReconciler) awaitWorkOrder(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment,
 	runner *selfhostedv1alpha1.ClaudeRunner) (res ctrl.Result, wait bool, err error) {
 	name := runner.Spec.WorkOrderSecretRef.Name
-	err = r.Reader.Get(ctx, types.NamespacedName{Name: name, Namespace: runner.Namespace}, &corev1.Secret{})
+	secret := &corev1.Secret{}
+	err = r.Reader.Get(ctx, types.NamespacedName{Name: name, Namespace: runner.Namespace}, secret)
 	if err == nil {
+		if !workOrderBelongs(secret, env, runner) {
+			r.fail(runner, selfhostedv1alpha1.ReasonWorkOrderMismatch,
+				fmt.Sprintf("work-order Secret %q does not belong to environment %q", name, env.Name))
+			return ctrl.Result{}, true, nil
+		}
 		return ctrl.Result{}, false, nil
 	}
 	if !apierrors.IsNotFound(err) {
@@ -262,15 +276,32 @@ func (r *ClaudeRunnerReconciler) awaitWorkOrder(ctx context.Context, env *selfho
 	return ctrl.Result{RequeueAfter: workOrderPollWait}, true, nil
 }
 
+// workOrderBelongs reports whether secret is a work order the hook made for
+// env: labelled with the environment and controlled by env or, after the
+// hook's hand-off, by runner. The orchestrator identity can name any Secret in
+// the namespace in spec.workOrderSecretRef; only these may be mounted.
+func workOrderBelongs(secret *corev1.Secret, env *selfhostedv1alpha1.ClaudeEnvironment, runner *selfhostedv1alpha1.ClaudeRunner) bool {
+	if secret.Labels[selfhostedv1alpha1.LabelEnvironment] != runner.Spec.EnvironmentRef.Name {
+		return false
+	}
+	owner := metav1.GetControllerOf(secret)
+	if owner == nil || owner.APIVersion != selfhostedv1alpha1.GroupVersion.String() {
+		return false
+	}
+	return (owner.Kind == "ClaudeEnvironment" && owner.UID == env.UID) || (owner.Kind == "ClaudeRunner" && owner.UID == runner.UID)
+}
+
 // createPod creates the runner pod. It runs only while Status.PodName is
 // empty, so a pod that later disappears is never started a second time.
-// Pods are immutable, so an existing pod is used as is rather than re-applied.
+// Pods are immutable, so an existing pod is used as is rather than re-applied,
+// but only when the runner controls it: a pod someone else made under the
+// runner's name fails the runner with PodMismatch and nil is returned.
 func (r *ClaudeRunnerReconciler) createPod(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment,
 	runner *selfhostedv1alpha1.ClaudeRunner) (*corev1.Pod, error) {
 	pod := &corev1.Pod{}
 	err := r.Get(ctx, client.ObjectKeyFromObject(runner), pod)
 	if err == nil {
-		return pod, nil
+		return r.adopt(runner, pod), nil
 	}
 	if !apierrors.IsNotFound(err) {
 		return nil, err
@@ -293,12 +324,43 @@ func (r *ClaudeRunnerReconciler) createPod(ctx context.Context, env *selfhostedv
 		if err != nil {
 			return nil, err
 		}
-		return existing, nil
+		return r.adopt(runner, existing), nil
 	}
 	logf.FromContext(ctx).Info("Created runner pod", "pod", pod.Name)
 	metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeCreated)
 	r.Recorder.Event(runner, corev1.EventTypeNormal, "PodCreated", "created runner pod "+pod.Name)
 	return pod, nil
+}
+
+// adopt returns pod when runner controls it, and otherwise fails the runner
+// and returns nil. The pod is never touched.
+func (r *ClaudeRunnerReconciler) adopt(runner *selfhostedv1alpha1.ClaudeRunner, pod *corev1.Pod) *corev1.Pod {
+	if metav1.IsControlledBy(pod, runner) {
+		return pod
+	}
+	r.fail(runner, selfhostedv1alpha1.ReasonPodMismatch, fmt.Sprintf("pod %s is not controlled by this ClaudeRunner", pod.Name))
+	return nil
+}
+
+// deleteOwnPod deletes the pod named after the runner when the runner
+// controls it, and reports whether no such pod is left. It reads uncached, so
+// a pod the cache has not seen yet is not missed, and the UID precondition
+// spares a pod recreated under the name since. A pod the runner does not
+// control counts as gone and is never touched.
+func (r *ClaudeRunnerReconciler) deleteOwnPod(ctx context.Context, runner *selfhostedv1alpha1.ClaudeRunner) (bool, error) {
+	pod := &corev1.Pod{}
+	if err := r.Reader.Get(ctx, client.ObjectKeyFromObject(runner), pod); err != nil {
+		return apierrors.IsNotFound(err), client.IgnoreNotFound(err)
+	}
+	if !metav1.IsControlledBy(pod, runner) {
+		return true, nil
+	}
+	if pod.DeletionTimestamp.IsZero() {
+		if err := r.Delete(ctx, pod, client.Preconditions{UID: &pod.UID}); client.IgnoreNotFound(err) != nil {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 // existingPod returns the pod recorded in Status.PodName, or nil when an
@@ -339,35 +401,41 @@ func (r *ClaudeRunnerReconciler) expire(ctx context.Context, runner *selfhostedv
 	return ctrl.Result{}, client.IgnoreNotFound(r.Delete(ctx, runner))
 }
 
-// finalize removes the pod and waits for it to be gone before releasing the finalizer.
+// finalize removes the runner's own pod and waits for it to be gone before
+// releasing the finalizer.
 func (r *ClaudeRunnerReconciler) finalize(ctx context.Context, runner *selfhostedv1alpha1.ClaudeRunner) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(runner, selfhostedv1alpha1.RunnerFinalizer) {
 		return ctrl.Result{}, nil
 	}
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: runner.Name, Namespace: runner.Namespace}}
-	if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
+	gone, err := r.deleteOwnPod(ctx, runner)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), pod); err == nil {
+	if !gone {
 		return ctrl.Result{RequeueAfter: podDeletionPollWait}, nil
-	} else if !apierrors.IsNotFound(err) {
-		return ctrl.Result{}, err
 	}
 	controllerutil.RemoveFinalizer(runner, selfhostedv1alpha1.RunnerFinalizer)
 	return ctrl.Result{}, client.IgnoreNotFound(r.Update(ctx, runner))
 }
 
+// fail records the runner as Failed, counts it unless it already was, and
+// emits a Warning event.
 func (r *ClaudeRunnerReconciler) fail(runner *selfhostedv1alpha1.ClaudeRunner, reason, msg string) {
 	if runner.Status.Phase != selfhostedv1alpha1.RunnerFailed {
 		metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeFailed)
 	}
+	r.markFailed(runner, reason, msg)
+	r.Recorder.Event(runner, corev1.EventTypeWarning, reason, msg)
+}
+
+// markFailed records the runner as Failed without counting it or emitting an event.
+func (r *ClaudeRunnerReconciler) markFailed(runner *selfhostedv1alpha1.ClaudeRunner, reason, msg string) {
 	runner.Status.Phase, runner.Status.Reason, runner.Status.Message = selfhostedv1alpha1.RunnerFailed, reason, msg
 	if runner.Status.FinishedAt == nil {
 		now := metav1.NewTime(r.now())
 		runner.Status.FinishedAt = &now
 	}
 	r.setReady(runner, metav1.ConditionFalse, reason, msg)
-	r.Recorder.Event(runner, corev1.EventTypeWarning, reason, msg)
 }
 
 func (r *ClaudeRunnerReconciler) setReady(runner *selfhostedv1alpha1.ClaudeRunner, status metav1.ConditionStatus, reason, msg string) {

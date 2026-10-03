@@ -30,6 +30,7 @@ import (
 
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -104,6 +105,46 @@ func (r *endpointsReader) Get(ctx context.Context, key client.ObjectKey, obj cli
 
 var envReader *endpointsReader
 
+// faultClient wraps a reconciler's client so a spec can run a hook before
+// each status update the reconciler sends, for example to race it with a
+// write of its own, or make NetworkPolicy deletes fail.
+type faultClient struct {
+	client.Client
+	beforeStatusUpdate      atomic.Pointer[func(client.Object)]
+	failNetworkPolicyDelete atomic.Bool
+}
+
+// onStatusUpdate installs hook until the spec ends.
+func (c *faultClient) onStatusUpdate(hook func(client.Object)) {
+	c.beforeStatusUpdate.Store(&hook)
+	DeferCleanup(func() { c.beforeStatusUpdate.Store(nil) })
+}
+
+func (c *faultClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	if _, ok := obj.(*networkingv1.NetworkPolicy); ok && c.failNetworkPolicyDelete.Load() {
+		return apierrors.NewServiceUnavailable("injected NetworkPolicy delete failure")
+	}
+	return c.Client.Delete(ctx, obj, opts...)
+}
+
+func (c *faultClient) Status() client.SubResourceWriter {
+	return &faultStatusWriter{SubResourceWriter: c.Client.Status(), c: c}
+}
+
+type faultStatusWriter struct {
+	client.SubResourceWriter
+	c *faultClient
+}
+
+func (w *faultStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	if hook := w.c.beforeStatusUpdate.Load(); hook != nil {
+		(*hook)(obj)
+	}
+	return w.SubResourceWriter.Update(ctx, obj, opts...)
+}
+
+var envClient, runnerClient *faultClient
+
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 	telemetry.InstallExporter(spanExporter)
@@ -145,14 +186,16 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 	envReader = &endpointsReader{Reader: k8sManager.GetAPIReader()}
+	envClient = &faultClient{Client: k8sManager.GetClient()}
+	runnerClient = &faultClient{Client: k8sManager.GetClient()}
 	envReconciler = &ClaudeEnvironmentReconciler{
-		Client: k8sManager.GetClient(), Reader: envReader, Scheme: k8sManager.GetScheme(), Clock: clock.Now, HookImage: testHookImage,
+		Client: envClient, Reader: envReader, Scheme: k8sManager.GetScheme(), Clock: clock.Now, HookImage: testHookImage,
 		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
 		Recorder: k8sManager.GetEventRecorderFor("claude-selfhosted-operator-test"),
 	}
 	Expect(envReconciler.SetupWithManager(k8sManager)).To(Succeed())
 	runnerReconciler = &ClaudeRunnerReconciler{
-		Client: k8sManager.GetClient(), Reader: k8sManager.GetAPIReader(), Scheme: k8sManager.GetScheme(), Clock: clock.Now,
+		Client: runnerClient, Reader: k8sManager.GetAPIReader(), Scheme: k8sManager.GetScheme(), Clock: clock.Now,
 		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
 		Recorder: k8sManager.GetEventRecorderFor("claude-selfhosted-operator-test"),
 	}

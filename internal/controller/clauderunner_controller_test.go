@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -27,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -52,6 +54,23 @@ func runnerObj(ns, order string) *selfhostedv1alpha1.ClaudeRunner {
 		Spec: selfhostedv1alpha1.ClaudeRunnerSpec{EnvironmentRef: selfhostedv1alpha1.LocalObjectRef{Name: envName}, OrderID: order,
 			SessionID: "session_" + order, WorkOrderSecretRef: selfhostedv1alpha1.LocalObjectRef{Name: order + "-work-order"}},
 	}
+}
+
+// hookWorkOrder is the work-order Secret as the hook creates it: both
+// operator labels, type Opaque and the environment as controller owner.
+func hookWorkOrder(env *selfhostedv1alpha1.ClaudeEnvironment, order string) *corev1.Secret {
+	s := workOrderSecret(env.Namespace, order)
+	s.Type = corev1.SecretTypeOpaque
+	s.Labels = map[string]string{selfhostedv1alpha1.LabelEnvironment: env.Name, selfhostedv1alpha1.LabelOrderID: order}
+	s.OwnerReferences = []metav1.OwnerReference{controllerRefTo(env, "ClaudeEnvironment")}
+	return s
+}
+
+// controllerRefTo is a controller owner reference without blockOwnerDeletion, as the hook sets it.
+func controllerRefTo(owner metav1.Object, kind string) metav1.OwnerReference {
+	ref := metav1.NewControllerRef(owner, selfhostedv1alpha1.GroupVersion.WithKind(kind))
+	ref.BlockOwnerDeletion = nil
+	return *ref
 }
 
 // ownedBy makes the created environment the runner's controller owner, as the hook does.
@@ -91,7 +110,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		ns := newNamespace(ctx)
 		env := onDemandEnvObj(ns)
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
-		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-1"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-1"))).To(Succeed())
 		r := ownedBy(runnerObj(ns, "order-1"), env)
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())
 		key := client.ObjectKeyFromObject(r)
@@ -125,7 +144,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		env := onDemandEnvObj(ns)
 		env.Spec.OnDemand.RunnerTTLSecondsAfterFinished = ptr.To[int32](3)
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
-		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-2"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-2"))).To(Succeed())
 		r := ownedBy(runnerObj(ns, "order-2"), env)
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())
 		key := client.ObjectKeyFromObject(r)
@@ -145,7 +164,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		ns := newNamespace(ctx)
 		env := onDemandEnvObj(ns)
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
-		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-3"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-3"))).To(Succeed())
 		r := ownedBy(runnerObj(ns, "order-3"), env)
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())
 		key := client.ObjectKeyFromObject(r)
@@ -166,7 +185,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		env.Spec.OnDemand.Orchestrator.ExpectedSpawnSeconds = 30
 		env.Spec.OnDemand.Orchestrator.HookTimeoutSeconds = 15 // the CRD requires hookTimeoutSeconds >= 15 and hookTimeoutSeconds + 5 < expectedSpawnSeconds
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
-		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-4"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-4"))).To(Succeed())
 		r := ownedBy(runnerObj(ns, "order-4"), env)
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())
 		key := client.ObjectKeyFromObject(r)
@@ -215,7 +234,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 			_ = k8sClient.Get(ctx, key, got)
 			return string(got.Status.Phase) + "/" + got.Status.Reason
 		}, timeout, interval).Should(Equal(string(selfhostedv1alpha1.RunnerPending) + "/" + selfhostedv1alpha1.ReasonWorkOrderMissing))
-		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-9"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-9"))).To(Succeed())
 
 		Eventually(func() error { return k8sClient.Get(ctx, key, &corev1.Pod{}) }, timeout, interval).Should(Succeed())
 		Eventually(func() string {
@@ -230,7 +249,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		ns := newNamespace(ctx)
 		env := onDemandEnvObj(ns)
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
-		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-10"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-10"))).To(Succeed())
 		r := ownedBy(runnerObj(ns, "order-10"), env)
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())
 		key := client.ObjectKeyFromObject(r)
@@ -255,7 +274,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		named := onDemandEnvObj(ns)
 		named.Name = "other"
 		Expect(k8sClient.Create(ctx, named)).To(Succeed())
-		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-11"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(named, "order-11"))).To(Succeed())
 		r := ownedBy(runnerObj(ns, "order-11"), owner)
 		r.Spec.EnvironmentRef.Name = named.Name
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())
@@ -272,7 +291,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		ns := newNamespace(ctx)
 		env := onDemandEnvObj(ns)
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
-		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-12"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-12"))).To(Succeed())
 		r := ownedBy(runnerObj(ns, "order-12"), env)
 		r.OwnerReferences[0].UID = types.UID("00000000-0000-0000-0000-000000000000")
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())
@@ -286,26 +305,181 @@ var _ = Describe("ClaudeRunner controller", func() {
 		Consistently(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Pod{})) }, 2*time.Second, interval).Should(BeTrue())
 	})
 
-	It("adopts a pod that already exists without counting or announcing a second creation", func() {
+	It("adopts a pod it controls that already exists without counting or announcing a second creation", func() {
 		ns := newNamespace(ctx)
 		env := onDemandEnvObj(ns)
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
-		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-13"))).To(Succeed())
-		// No role label, so the manager's pod cache never sees it and the
-		// create runs into AlreadyExists.
-		Expect(k8sClient.Create(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "order-13", Namespace: ns},
-			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "runner", Image: runnerImage}}}})).To(Succeed())
 		r := ownedBy(runnerObj(ns, "order-13"), env)
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())
 		key := client.ObjectKeyFromObject(r)
+		// Without its work order the runner waits, so the pod below is there first.
+		Eventually(func() string {
+			got := &selfhostedv1alpha1.ClaudeRunner{}
+			_ = k8sClient.Get(ctx, key, got)
+			return got.Status.Reason
+		}, timeout, interval).Should(Equal(selfhostedv1alpha1.ReasonWorkOrderMissing))
+		Expect(k8sClient.Get(ctx, key, r)).To(Succeed())
+		// No role label, so the manager's pod cache never sees it and the
+		// create runs into AlreadyExists.
+		Expect(k8sClient.Create(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "order-13", Namespace: ns,
+			OwnerReferences: []metav1.OwnerReference{controllerRefTo(r, "ClaudeRunner")}},
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "runner", Image: runnerImage}}}})).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-13"))).To(Succeed())
 
 		Eventually(func() string {
 			got := &selfhostedv1alpha1.ClaudeRunner{}
 			_ = k8sClient.Get(ctx, key, got)
 			return got.Status.PodName
 		}, timeout, interval).Should(Equal("order-13"))
+		Expect(runnerPhase(ctx, key)()).To(Equal(selfhostedv1alpha1.RunnerPending))
 		Consistently(eventCount(ctx, ns, "PodCreated"), 2*time.Second, interval).Should(Equal(int32(0)))
 		Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeCreated)).To(Equal(0.0))
+	})
+
+	DescribeTable("never adopts a pod with the runner's name that it does not control, and leaves that pod alone",
+		func(podLabels map[string]string) {
+			ns := newNamespace(ctx)
+			env := onDemandEnvObj(ns)
+			env.Spec.OnDemand.RunnerTTLSecondsAfterFinished = ptr.To[int32](3)
+			Expect(k8sClient.Create(ctx, env)).To(Succeed())
+			Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-16"))).To(Succeed())
+			foreign := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "order-16", Namespace: ns, Labels: podLabels},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: runnerImage}}}}
+			Expect(k8sClient.Create(ctx, foreign)).To(Succeed())
+			r := ownedBy(runnerObj(ns, "order-16"), env)
+			Expect(k8sClient.Create(ctx, r)).To(Succeed())
+			key := client.ObjectKeyFromObject(r)
+
+			Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerFailed))
+			got := &selfhostedv1alpha1.ClaudeRunner{}
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			Expect(got.Status.Reason).To(Equal(selfhostedv1alpha1.ReasonPodMismatch))
+			Expect(got.Status.PodName).To(BeEmpty())
+			Expect(eventCount(ctx, ns, selfhostedv1alpha1.ReasonPodMismatch)()).To(Equal(int32(1)))
+			Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeFailed)).To(Equal(1.0))
+
+			By("deleting the runner after its TTL without touching the foreign pod")
+			Eventually(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &selfhostedv1alpha1.ClaudeRunner{})) }, 20*time.Second, interval).Should(BeTrue())
+			pod := &corev1.Pod{}
+			Expect(k8sClient.Get(ctx, key, pod)).To(Succeed())
+			Expect(pod.UID).To(Equal(foreign.UID))
+			Expect(pod.DeletionTimestamp).To(BeNil())
+			Expect(pod.OwnerReferences).To(BeEmpty())
+			Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeFailed)).To(Equal(1.0))
+		},
+		Entry("a pod the manager's cache holds", map[string]string{selfhostedv1alpha1.LabelRole: selfhostedv1alpha1.RoleRunner}),
+		Entry("a pod only the API server knows", nil),
+	)
+
+	DescribeTable("refuses a work-order Secret that does not belong to the runner's environment",
+		func(mutate func(s *corev1.Secret)) {
+			ns := newNamespace(ctx)
+			env := onDemandEnvObj(ns)
+			Expect(k8sClient.Create(ctx, env)).To(Succeed())
+			s := hookWorkOrder(env, "order-17")
+			mutate(s)
+			Expect(k8sClient.Create(ctx, s)).To(Succeed())
+			r := ownedBy(runnerObj(ns, "order-17"), env)
+			Expect(k8sClient.Create(ctx, r)).To(Succeed())
+			key := client.ObjectKeyFromObject(r)
+
+			Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerFailed))
+			got := &selfhostedv1alpha1.ClaudeRunner{}
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			Expect(got.Status.Reason).To(Equal(selfhostedv1alpha1.ReasonWorkOrderMismatch))
+			Expect(got.Status.Message).To(ContainSubstring("order-17-work-order"))
+			Consistently(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Pod{})) }, 2*time.Second, interval).Should(BeTrue())
+			Expect(eventCount(ctx, ns, selfhostedv1alpha1.ReasonWorkOrderMismatch)()).To(Equal(int32(1)))
+			Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeFailed)).To(Equal(1.0))
+		},
+		Entry("labelled for another environment", func(s *corev1.Secret) {
+			s.Labels[selfhostedv1alpha1.LabelEnvironment] = "other-environment"
+		}),
+		Entry("without the environment label", func(s *corev1.Secret) {
+			delete(s.Labels, selfhostedv1alpha1.LabelEnvironment)
+		}),
+		Entry("controlled by another ClaudeEnvironment UID", func(s *corev1.Secret) {
+			s.OwnerReferences[0].UID = types.UID("00000000-0000-0000-0000-000000000000")
+		}),
+		Entry("without a controller owner", func(s *corev1.Secret) {
+			s.OwnerReferences = nil
+		}),
+	)
+
+	It("accepts a work order already handed to the ClaudeRunner", func() {
+		ns := newNamespace(ctx)
+		env := onDemandEnvObj(ns)
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		r := ownedBy(runnerObj(ns, "order-18"), env)
+		Expect(k8sClient.Create(ctx, r)).To(Succeed())
+		key := client.ObjectKeyFromObject(r)
+		Eventually(func() string {
+			got := &selfhostedv1alpha1.ClaudeRunner{}
+			_ = k8sClient.Get(ctx, key, got)
+			return got.Status.Reason
+		}, timeout, interval).Should(Equal(selfhostedv1alpha1.ReasonWorkOrderMissing))
+		Expect(k8sClient.Get(ctx, key, r)).To(Succeed())
+		// The hook's merge patch replaces the owner references with the runner alone.
+		s := hookWorkOrder(env, "order-18")
+		s.OwnerReferences = []metav1.OwnerReference{controllerRefTo(r, "ClaudeRunner")}
+		Expect(k8sClient.Create(ctx, s)).To(Succeed())
+
+		Eventually(func() error { return k8sClient.Get(ctx, key, &corev1.Pod{}) }, timeout, interval).Should(Succeed())
+		Expect(runnerPhase(ctx, key)()).NotTo(Equal(selfhostedv1alpha1.RunnerFailed))
+	})
+
+	It("counts a spawn timeout once when the status update after the pod delete conflicts", func() {
+		ns := newNamespace(ctx)
+		env := onDemandEnvObj(ns)
+		env.Spec.OnDemand.Orchestrator.ExpectedSpawnSeconds = 30
+		env.Spec.OnDemand.Orchestrator.HookTimeoutSeconds = 15
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-15"))).To(Succeed())
+		r := ownedBy(runnerObj(ns, "order-15"), env)
+		Expect(k8sClient.Create(ctx, r)).To(Succeed())
+		key := client.ObjectKeyFromObject(r)
+		Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerPending))
+		Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeFailed)).To(Equal(0.0))
+
+		// The first status update the reconciler sends once the pod is gone
+		// loses to a concurrent write of the runner, a genuine conflict.
+		var raced atomic.Bool
+		runnerClient.onStatusUpdate(func(obj client.Object) {
+			if obj.GetNamespace() != ns || obj.GetName() != key.Name || raced.Load() {
+				return
+			}
+			if !apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Pod{})) {
+				return
+			}
+			raced.Store(true)
+			_ = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				cur := &selfhostedv1alpha1.ClaudeRunner{}
+				if err := k8sClient.Get(ctx, key, cur); err != nil {
+					return err
+				}
+				cur.Annotations = map[string]string{"test/race": "1"}
+				return k8sClient.Update(ctx, cur)
+			})
+		})
+		clock.Shift(2 * time.Minute)
+		DeferCleanup(func() { clock.Shift(0) })
+		Expect(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			cur := &selfhostedv1alpha1.ClaudeRunner{}
+			if err := k8sClient.Get(ctx, key, cur); err != nil {
+				return err
+			}
+			cur.Annotations = map[string]string{"test/timeout": "1"}
+			return k8sClient.Update(ctx, cur)
+		})).To(Succeed())
+
+		Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerFailed))
+		Eventually(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Pod{})) }, timeout, interval).Should(BeTrue())
+		Eventually(raced.Load, timeout, interval).Should(BeTrue(), "the race must have run")
+		Consistently(func() float64 { return metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeFailed) }, 3*time.Second, interval).Should(Equal(1.0))
+		Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeSpawnTimeout)).To(Equal(1.0))
+		got := &selfhostedv1alpha1.ClaudeRunner{}
+		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+		Expect(got.Status.Reason).To(Equal(selfhostedv1alpha1.ReasonSpawnTimeout))
 	})
 
 	It("fails cleanly when the environment is missing", func() {
@@ -324,7 +498,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		ns := newNamespace(ctx)
 		env := onDemandEnvObj(ns)
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
-		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-7"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-7"))).To(Succeed())
 		r := ownedBy(runnerObj(ns, "order-7"), env)
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())
 		key := client.ObjectKeyFromObject(r)
@@ -342,7 +516,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		ns := newNamespace(ctx)
 		env := onDemandEnvObj(ns)
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
-		Expect(k8sClient.Create(ctx, workOrderSecret(ns, "order-8"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-8"))).To(Succeed())
 		r := ownedBy(runnerObj(ns, "order-8"), env)
 		r.Annotations = map[string]string{selfhostedv1alpha1.AnnotationTraceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())

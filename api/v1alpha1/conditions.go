@@ -57,6 +57,8 @@ const (
 	ReasonEnvironmentMissing           = "EnvironmentMissing"
 	ReasonPodLost                      = "PodLost"
 	ReasonEnvironmentMismatch          = "EnvironmentMismatch"
+	ReasonWorkOrderMismatch            = "WorkOrderMismatch"
+	ReasonPodMismatch                  = "PodMismatch"
 	ReasonRunnerSucceeded              = "RunnerSucceeded"
 	ReasonRunnerFailed                 = "RunnerFailed"
 	ReasonOrchestratorUnavailable      = "OrchestratorUnavailable"

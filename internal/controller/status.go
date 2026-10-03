@@ -41,15 +41,15 @@ type statusPass struct {
 	degraded []degradation
 	// before holds the conditions as they were when the pass started.
 	before []metav1.Condition
-	// warnings are sent by emit once the pass's status is stored, so a pass
+	// events are sent by emit once the pass's status is stored, so a pass
 	// that read a stale object and lost the update race does not repeat them.
-	warnings []warning
+	events []queuedEvent
 }
 
-type warning struct {
-	rec             record.EventRecorder
-	env             *selfhostedv1alpha1.ClaudeEnvironment
-	reason, message string
+type queuedEvent struct {
+	rec                        record.EventRecorder
+	env                        *selfhostedv1alpha1.ClaudeEnvironment
+	eventType, reason, message string
 }
 
 func newStatusPass(env *selfhostedv1alpha1.ClaudeEnvironment) *statusPass {
@@ -81,13 +81,18 @@ func (p *statusPass) degradeOnce(rec record.EventRecorder, env *selfhostedv1alph
 		(strings.HasPrefix(c.Message, reason+": ") || strings.Contains(c.Message, degradedSeparator+reason+": ")) {
 		return
 	}
-	p.warnings = append(p.warnings, warning{rec, env, reason, msg})
+	p.event(rec, env, corev1.EventTypeWarning, reason, msg)
 }
 
-// emit sends the Warning events degradeOnce queued.
+// event queues an event for emit.
+func (p *statusPass) event(rec record.EventRecorder, env *selfhostedv1alpha1.ClaudeEnvironment, eventType, reason, msg string) {
+	p.events = append(p.events, queuedEvent{rec, env, eventType, reason, msg})
+}
+
+// emit sends the queued events.
 func (p *statusPass) emit() {
-	for _, w := range p.warnings {
-		w.rec.Event(w.env, corev1.EventTypeWarning, w.reason, w.message)
+	for _, e := range p.events {
+		e.rec.Event(e.env, e.eventType, e.reason, e.message)
 	}
 }
 

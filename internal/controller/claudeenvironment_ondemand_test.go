@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -26,8 +27,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -87,6 +90,41 @@ var _ = Describe("ClaudeEnvironment on-demand mode", func() {
 		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
 		Expect(got.Status.Mode).To(Equal("onDemand"))
 		Expect(got.Status.OnDemand.OrchestratorReadyReplicas).To(Equal(int32(2)))
+	})
+
+	It("announces FleetAvailable once when the status update that records it conflicts", func() {
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
+		env := onDemandEnvObj(ns)
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		key := client.ObjectKeyFromObject(env)
+		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionFleetAvailable), timeout, interval).Should(HaveField("Status", metav1.ConditionFalse))
+
+		// The first status update that records FleetAvailable=True loses to a
+		// concurrent write of the environment, a genuine conflict.
+		var raced atomic.Bool
+		envClient.onStatusUpdate(func(obj client.Object) {
+			got, ok := obj.(*selfhostedv1alpha1.ClaudeEnvironment)
+			if !ok || got.Namespace != ns || raced.Load() ||
+				!meta.IsStatusConditionTrue(got.Status.Conditions, selfhostedv1alpha1.ConditionFleetAvailable) {
+				return
+			}
+			raced.Store(true)
+			_ = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				cur := &selfhostedv1alpha1.ClaudeEnvironment{}
+				if err := k8sClient.Get(ctx, key, cur); err != nil {
+					return err
+				}
+				cur.Annotations = map[string]string{"test/race": "1"}
+				return k8sClient.Update(ctx, cur)
+			})
+		})
+		markDeploymentAvailable(ctx, types.NamespacedName{Name: orchestratorObjName, Namespace: ns})
+
+		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionFleetAvailable), timeout, interval).Should(HaveField("Status", metav1.ConditionTrue))
+		Expect(raced.Load()).To(BeTrue(), "the race must have run")
+		Eventually(eventCount(ctx, ns, selfhostedv1alpha1.ReasonFleetAvailable), timeout, interval).Should(Equal(int32(1)))
+		Consistently(eventCount(ctx, ns, selfhostedv1alpha1.ReasonFleetAvailable), 3*time.Second, interval).Should(Equal(int32(1)))
 	})
 
 	It("degrades with HookImageUnset when the operator has no hook image", func() {
@@ -151,7 +189,7 @@ var _ = Describe("ClaudeEnvironment on-demand mode", func() {
 		// Phases are driven through pod status so the ClaudeRunner controller
 		// derives them itself: c1 stays Pending, c2 and c3 run, c4 finishes.
 		for _, name := range []string{"c1", "c2", "c3", "c4"} {
-			Expect(k8sClient.Create(ctx, workOrderSecret(ns, name))).To(Succeed())
+			Expect(k8sClient.Create(ctx, hookWorkOrder(env, name))).To(Succeed())
 			r := ownedBy(runnerObj(ns, name), env)
 			Expect(k8sClient.Create(ctx, r)).To(Succeed())
 			Eventually(func() error { return k8sClient.Get(ctx, client.ObjectKeyFromObject(r), &corev1.Pod{}) }, timeout, interval).Should(Succeed())
