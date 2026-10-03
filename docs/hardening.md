@@ -67,8 +67,10 @@ For a matched identity:
 
 - **Secrets** (CREATE, UPDATE, DELETE; a patch arrives as UPDATE): the name must end in `-work-order`, and the
   label `selfhosted.claudecode.dev/environment` must equal `<env>` on the new object (CREATE, UPDATE) and
-  on the old object (UPDATE, DELETE). An orchestrator can therefore touch only its own environment's work
-  orders, even in a shared namespace. Denial message: "an orchestrator ServiceAccount may only manage its own
+  on the old object (UPDATE, DELETE), and the new object's `type` must be `Opaque` (CREATE, UPDATE; an
+  omitted type is defaulted to `Opaque` before admission). An orchestrator can therefore touch only its own
+  environment's work orders, even in a shared namespace, and cannot mint a
+  `kubernetes.io/service-account-token` Secret under a work-order name. Denial message: "an orchestrator ServiceAccount may only manage its own
   environment's Secrets named \*-work-order".
 - **ClaudeRunners** (CREATE): the controller owner reference must be the ClaudeEnvironment `<env>` with
   apiVersion `selfhosted.claudecode.dev/v1alpha1`, `spec.environmentRef.name` must be `<env>`, and

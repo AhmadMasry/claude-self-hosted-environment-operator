@@ -32,6 +32,7 @@ spec:
     - expression: >-
         (request.operation == 'DELETE' ? oldObject : object).metadata.name.endsWith('-work-order') &&
         (request.operation == 'DELETE' || (has(object.metadata.labels) && 'selfhosted.claudecode.dev/environment' in object.metadata.labels && object.metadata.labels['selfhosted.claudecode.dev/environment'] == variables.env)) &&
+        (request.operation == 'DELETE' || (has(object.type) && object.type == 'Opaque')) &&
         (request.operation == 'CREATE' || (has(oldObject.metadata.labels) && 'selfhosted.claudecode.dev/environment' in oldObject.metadata.labels && oldObject.metadata.labels['selfhosted.claudecode.dev/environment'] == variables.env))
       reason: Forbidden
       message: "an orchestrator ServiceAccount may only manage its own environment's Secrets named *-work-order"

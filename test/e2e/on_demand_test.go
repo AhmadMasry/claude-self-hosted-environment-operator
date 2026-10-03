@@ -136,6 +136,23 @@ stringData:
 			_, err = kubectlOD("delete", "secret", "ok-work-order", "--as", sa)
 			Expect(err).NotTo(HaveOccurred())
 
+			By("denying a correctly named and labelled Secret that is not Opaque")
+			tokenSecret := `apiVersion: v1
+kind: Secret
+metadata:
+  name: token-work-order
+  labels:
+    selfhosted.claudecode.dev/environment: e2e-od
+  annotations:
+    kubernetes.io/service-account.name: e2e-od-orchestrator
+type: kubernetes.io/service-account-token
+`
+			apply = exec.Command("kubectl", "-n", odNamespace, "create", "--as", sa, "-f", "-")
+			apply.Stdin = strings.NewReader(tokenSecret)
+			_, err = utils.Run(apply)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(secretMsg))
+
 			uid, err := kubectlOD("get", "claudeenvironment", "e2e-od", "-o", "jsonpath={.metadata.uid}")
 			Expect(err).NotTo(HaveOccurred())
 			runner := `apiVersion: selfhosted.claudecode.dev/v1alpha1

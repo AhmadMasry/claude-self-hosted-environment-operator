@@ -57,7 +57,7 @@ counts towards the product's circuit breaker.
 
 | Error | Cause |
 | :- | :- |
-| `ValidatingAdmissionPolicy '...orchestrator-secrets' ... denied request: an orchestrator ServiceAccount may only manage its own environment's Secrets named *-work-order` | An `<env>-orchestrator` identity wrote a Secret that is not its own work order (wrong name, or label `selfhosted.claudecode.dev/environment` not equal to `<env>`). The operator's hook never does; investigate anything else using that ServiceAccount |
+| `ValidatingAdmissionPolicy '...orchestrator-secrets' ... denied request: an orchestrator ServiceAccount may only manage its own environment's Secrets named *-work-order` | An `<env>-orchestrator` identity wrote a Secret that is not its own work order (wrong name, label `selfhosted.claudecode.dev/environment` not equal to `<env>`, or a `type` other than `Opaque`). The operator's hook never does; investigate anything else using that ServiceAccount |
 | `... orchestrator-runners ... denied request: an orchestrator may only create ClaudeRunners owned by its own ClaudeEnvironment that reference their own work order` | Same, for ClaudeRunners |
 | `no matches for kind "ValidatingAdmissionPolicy"` during install | Kubernetes older than 1.30. Install with `admissionPolicy.enabled=false`, or remove `../admission` from the kustomization |
 | `runner.image must carry a tag or digest and must not use :latest` | Use `<image>:<tag>` (not `latest`) or `<image>@sha256:<64 hex>` |
