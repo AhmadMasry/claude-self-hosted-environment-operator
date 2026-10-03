@@ -189,6 +189,7 @@ type PersistentWorkspaceSpec struct {
 
 // OrchestratorSpec configures `claude self-hosted-runner orchestrator`.
 // +kubebuilder:validation:XValidation:rule="!has(self.hookTimeoutSeconds) || !has(self.expectedSpawnSeconds) || self.hookTimeoutSeconds + 5 < self.expectedSpawnSeconds",message="hookTimeoutSeconds + 5 must be below expectedSpawnSeconds"
+// +kubebuilder:validation:XValidation:rule="!has(self.env) || !self.env.exists(e, e.name.startsWith('CLAUDE_OPERATOR_'))",message="orchestrator.env may not set operator-owned variables"
 type OrchestratorSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:default=2

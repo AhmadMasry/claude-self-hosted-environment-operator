@@ -125,9 +125,9 @@ kind's default CNI does not enforce NetworkPolicy; the e2e suite checks only the
   Secret is excluded by name, and each deletion emits a Normal `OrphanedWorkOrderDeleted` event.
 - **Operator-owned variables.** CEL rejects `runner.env` entries named `SELF_HOSTED_RUNNER_HOST_CONFIG_DIR`,
   `SELF_HOSTED_RUNNER_CLIENT_LABEL` or `SELF_HOSTED_RUNNER_ENVIRONMENT_SECRET` ("env may not set
-  operator-owned variables"), and `extraArgs` that set operator-owned flags. `onDemand.orchestrator.env`
-  has no such rule yet: do not set `CLAUDE_OPERATOR_*` names there, because they would override the
-  values the hook depends on.
+  operator-owned variables"), and `extraArgs` that set operator-owned flags. It also rejects
+  `onDemand.orchestrator.env` entries whose name starts with `CLAUDE_OPERATOR_` ("orchestrator.env may not
+  set operator-owned variables"), because they would override the values the hook depends on.
 
 ### Personal data
 

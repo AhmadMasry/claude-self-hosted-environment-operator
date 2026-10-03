@@ -15,7 +15,7 @@ All notable changes to this project are recorded here. The format follows
   `Pending`, `Running`, `Succeeded`, `Failed`.
 - `podTemplate` exposes only fields that keep pods within the Restricted Pod Security Standard.
 - CEL validation: image must carry a tag or digest and not be `:latest`; `baseDir` and `volumeMounts` may
-  not target `/etc/claude`, `/home/runner` or `/tmp`; `runner.env` may not set operator-owned variables;
+  not target `/etc/claude`, `/home/runner` or `/tmp`; `runner.env` and `onDemand.orchestrator.env` may not set operator-owned variables;
   operator-owned `extraArgs` flags rejected; `env` and `volumeMounts` capped at 64 entries;
   `hookTimeoutSeconds` at least 15 and `hookTimeoutSeconds + 5` below `expectedSpawnSeconds`;
   `spec.runner.networkPolicy` with IPv4 `egressCIDRs`.

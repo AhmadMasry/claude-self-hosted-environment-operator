@@ -63,6 +63,7 @@ counts towards the product's circuit breaker.
 | `runner.image must carry a tag or digest and must not use :latest` | Use `<image>:<tag>` (not `latest`) or `<image>@sha256:<64 hex>` |
 | `baseDir must not be /etc/claude, /home/runner or /tmp`, `volumeMounts must not target /etc/claude, /home/runner or /tmp` | These paths belong to the operator's mounts |
 | `env may not set operator-owned variables` | `runner.env` names `SELF_HOSTED_RUNNER_HOST_CONFIG_DIR`, `SELF_HOSTED_RUNNER_CLIENT_LABEL` or `SELF_HOSTED_RUNNER_ENVIRONMENT_SECRET`. Use `runner.hostConfig`, `settings.clientLabel` and `environmentSecretRef` |
+| `orchestrator.env may not set operator-owned variables` | `onDemand.orchestrator.env` names a `CLAUDE_OPERATOR_*` variable, which the operator sets for the hook. Use `onDemand.maxConcurrentRunners` and `onDemand.orchestrator.hookTimeoutSeconds` instead |
 | `extraArgs may not set operator-owned flags` | Use the matching spec field instead |
 | `egressCIDRs must be IPv4 CIDRs` | One entry is not `a.b.c.d/n` |
 | `hookTimeoutSeconds + 5 must be below expectedSpawnSeconds`; `spec.onDemand.orchestrator.hookTimeoutSeconds` below 15 | The first mirrors the orchestrator's own startup check (the timeout plus its 5-second kill grace must stay below the spawn lease); the hook needs at least 15 s, because its deadline is the timeout minus 10 s |

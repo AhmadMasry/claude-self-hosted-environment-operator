@@ -103,6 +103,11 @@ var _ = Describe("ClaudeEnvironment CEL validation", func() {
 		Entry("egress CIDR out of IPv4 CIDR syntax", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Runner.NetworkPolicy = &selfhostedv1alpha1.NetworkPolicySpec{Enabled: true, EgressCIDRs: []string{testEgressCIDR, "not-a-cidr"}}
 		}, "egressCIDRs must be IPv4 CIDRs"),
+		Entry("orchestrator env var with an operator-owned name", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Fixed = nil
+			e.Spec.OnDemand = &selfhostedv1alpha1.OnDemandSpec{Orchestrator: selfhostedv1alpha1.OrchestratorSpec{
+				Env: []corev1.EnvVar{{Name: selfhostedv1alpha1.EnvHookMaxConcurrentRunners, Value: "100"}}}}
+		}, "orchestrator.env may not set operator-owned variables"),
 		Entry("hook timeout too close to spawn lease", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Fixed = nil
 			e.Spec.OnDemand = &selfhostedv1alpha1.OnDemandSpec{Orchestrator: selfhostedv1alpha1.OrchestratorSpec{

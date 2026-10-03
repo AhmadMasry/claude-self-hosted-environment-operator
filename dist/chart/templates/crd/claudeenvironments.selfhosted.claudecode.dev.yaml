@@ -3017,6 +3017,8 @@ spec:
                     - message: hookTimeoutSeconds + 5 must be below expectedSpawnSeconds
                       rule: '!has(self.hookTimeoutSeconds) || !has(self.expectedSpawnSeconds)
                         || self.hookTimeoutSeconds + 5 < self.expectedSpawnSeconds'
+                    - message: orchestrator.env may not set operator-owned variables
+                      rule: '!has(self.env) || !self.env.exists(e, e.name.startsWith(''CLAUDE_OPERATOR_''))'
                   runnerTTLSecondsAfterFinished:
                     default: 300
                     format: int32
