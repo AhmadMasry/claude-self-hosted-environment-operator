@@ -34,7 +34,7 @@ trap cleanup EXIT
 # environment keys and email addresses) before a log line reaches a
 # (possibly public) CI log.
 redact() {
-  sed -E -e 's/eyJ[A-Za-z0-9_-]{20,}(\.[A-Za-z0-9_-]+){0,2}/[REDACTED]/g' \
+  sed -E -e 's/eyJ[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){1,2}|eyJ[A-Za-z0-9_-]{20,}/[REDACTED]/g' \
     -e 's/sk-ant-[A-Za-z0-9_-]+/[REDACTED]/g' \
     -e 's/cc(env|pool)[a-z_]*_[A-Za-z0-9_-]{8,}/[REDACTED]/g' \
     -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[REDACTED]/g'
