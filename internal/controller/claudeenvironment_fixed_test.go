@@ -258,6 +258,24 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		Eventually(hash, timeout, interval).ShouldNot(Equal(h2))
 	})
 
+	It("mounts each host-config key as a plain file in the fixed fleet template", func() {
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: hostConfigName, Namespace: ns},
+			Data: map[string]string{settingsKey: "{}", "CLAUDE.md": ""}})).To(Succeed())
+		env := fixedEnv(ns)
+		env.Spec.Runner.HostConfig = &selfhostedv1alpha1.ConfigMapRef{Name: hostConfigName}
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+
+		dep := &appsv1.Deployment{}
+		Eventually(func() error { return k8sClient.Get(ctx, types.NamespacedName{Name: runnerName, Namespace: ns}, dep) }, timeout, interval).Should(Succeed())
+		Expect(dep.Spec.Template.Spec.Containers[0].VolumeMounts).To(ContainElements(
+			corev1.VolumeMount{Name: hostConfigVolume, MountPath: builders.HostConfigMountPath + "/CLAUDE.md", SubPath: "CLAUDE.md", ReadOnly: true},
+			corev1.VolumeMount{Name: hostConfigVolume, MountPath: builders.HostConfigMountPath + "/" + settingsKey, SubPath: settingsKey, ReadOnly: true},
+		))
+		Expect(dep.Spec.Template.Spec.Containers[0].VolumeMounts).NotTo(ContainElement(HaveField("MountPath", builders.HostConfigMountPath)))
+	})
+
 	It("keeps a user grace period that is too short and flags it as Degraded", func() {
 		ns := newNamespace(ctx)
 		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())

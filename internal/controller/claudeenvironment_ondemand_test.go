@@ -40,6 +40,9 @@ import (
 const (
 	orchestratorObjName = "platform-orchestrator"
 	sharedConfigMap     = "shared"
+	hostConfigName      = "host-cfg"
+	hostConfigVolume    = "host-config"
+	settingsKey         = "settings.json"
 )
 
 func markDeploymentAvailable(ctx context.Context, key types.NamespacedName) {
@@ -361,7 +364,7 @@ var _ = Describe("ClaudeEnvironment on-demand mode", func() {
 	It("checks the wrapper key even when the wrapper and host config share a ConfigMap", func() {
 		ns := newNamespace(ctx)
 		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
-		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: sharedConfigMap, Namespace: ns}, Data: map[string]string{"settings.json": "{}"}})).To(Succeed())
+		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: sharedConfigMap, Namespace: ns}, Data: map[string]string{settingsKey: "{}"}})).To(Succeed())
 		env := fixedEnv(ns)
 		env.Spec.Runner.HostConfig = &selfhostedv1alpha1.ConfigMapRef{Name: sharedConfigMap}
 		env.Spec.Runner.WrapperScript = &selfhostedv1alpha1.ConfigMapKeyRef{Name: sharedConfigMap, Key: "wrap.sh"}

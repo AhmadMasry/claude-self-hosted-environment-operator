@@ -37,13 +37,14 @@ func EnvironmentSecretVolume(env *selfhostedv1alpha1.ClaudeEnvironment) corev1.V
 	}}
 }
 
-func fixedInput(env *selfhostedv1alpha1.ClaudeEnvironment, hash string, pvc bool) RunnerPodInput {
+func fixedInput(env *selfhostedv1alpha1.ClaudeEnvironment, hash string, pvc bool, hostConfigKeys []string) RunnerPodInput {
 	return RunnerPodInput{
 		Env: env, ConfigHash: hash,
 		SecretVolume:     EnvironmentSecretVolume(env),
 		SecretFile:       SecretMountPath + "/" + SecretFileName,
 		RestartPolicy:    corev1.RestartPolicyAlways,
 		WorkspaceFromPVC: pvc,
+		HostConfigKeys:   hostConfigKeys,
 	}
 }
 
@@ -53,21 +54,23 @@ func workloadMeta(env *selfhostedv1alpha1.ClaudeEnvironment) metav1.ObjectMeta {
 	return metav1.ObjectMeta{Name: FixedWorkloadName(env), Namespace: env.Namespace, Labels: labels}
 }
 
-// FixedDeployment builds the Deployment for a fixed fleet without persistent workspace.
-func FixedDeployment(env *selfhostedv1alpha1.ClaudeEnvironment, hash string) *appsv1.Deployment {
+// FixedDeployment builds the Deployment for a fixed fleet without persistent
+// workspace. hostConfigKeys come from HostConfigKeys.
+func FixedDeployment(env *selfhostedv1alpha1.ClaudeEnvironment, hash string, hostConfigKeys []string) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: workloadMeta(env),
 		Spec: appsv1.DeploymentSpec{
 			Replicas: env.Spec.Fixed.Replicas,
 			Selector: &metav1.LabelSelector{MatchLabels: RunnerSelectorLabels(env)},
-			Template: RunnerPodTemplate(fixedInput(env, hash, false)),
+			Template: RunnerPodTemplate(fixedInput(env, hash, false, hostConfigKeys)),
 		},
 	}
 }
 
-// FixedStatefulSet builds the StatefulSet for a fixed fleet with a persistent workspace.
-func FixedStatefulSet(env *selfhostedv1alpha1.ClaudeEnvironment, hash string) *appsv1.StatefulSet {
+// FixedStatefulSet builds the StatefulSet for a fixed fleet with a persistent
+// workspace. hostConfigKeys come from HostConfigKeys.
+func FixedStatefulSet(env *selfhostedv1alpha1.ClaudeEnvironment, hash string, hostConfigKeys []string) *appsv1.StatefulSet {
 	return &appsv1.StatefulSet{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
 		ObjectMeta: workloadMeta(env),
@@ -76,7 +79,7 @@ func FixedStatefulSet(env *selfhostedv1alpha1.ClaudeEnvironment, hash string) *a
 			ServiceName:         FixedWorkloadName(env),
 			PodManagementPolicy: appsv1.ParallelPodManagement,
 			Selector:            &metav1.LabelSelector{MatchLabels: RunnerSelectorLabels(env)},
-			Template:            RunnerPodTemplate(fixedInput(env, hash, true)),
+			Template:            RunnerPodTemplate(fixedInput(env, hash, true, hostConfigKeys)),
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
 				ObjectMeta: metav1.ObjectMeta{Name: WorkspaceVolume},
 				Spec:       env.Spec.Fixed.PersistentWorkspace.VolumeClaimTemplate,

@@ -18,6 +18,7 @@ package builders
 
 import (
 	"maps"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,6 +55,49 @@ type RunnerPodInput struct {
 	// WorkspaceFromPVC, when true, omits the workspace emptyDir because a
 	// StatefulSet volumeClaimTemplate named WorkspaceVolume provides it.
 	WorkspaceFromPVC bool
+	// HostConfigKeys are the keys of the hostConfig ConfigMap, each mounted
+	// as a plain file; see HostConfigKeys.
+	HostConfigKeys []string
+}
+
+// HostConfigKeys returns the sorted keys of the ConfigMap the runner's
+// hostConfig names, found by name in configMaps, or nil when the environment
+// has no hostConfig or the ConfigMap is not in the list.
+func HostConfigKeys(env *selfhostedv1alpha1.ClaudeEnvironment, configMaps []*corev1.ConfigMap) []string {
+	hc := env.Spec.Runner.HostConfig
+	if hc == nil {
+		return nil
+	}
+	for _, cm := range configMaps {
+		if cm == nil || cm.Name != hc.Name {
+			continue
+		}
+		keys := slices.Collect(maps.Keys(cm.Data))
+		keys = append(keys, slices.Collect(maps.Keys(cm.BinaryData))...)
+		slices.Sort(keys)
+		return slices.Compact(keys)
+	}
+	return nil
+}
+
+// hostConfigMounts mounts every key of the hostConfig ConfigMap as a plain
+// file under HostConfigMountPath. A ConfigMap volume mounted as a directory
+// exposes its keys as symlinks into a hidden timestamped directory, and the
+// runner's host-config snapshot captured nothing from such a mount, so no
+// settings or hooks reached the sessions (seen with Claude Code 2.1.288).
+// Without keys the directory is mounted as is, so the path the runner is
+// pointed at exists.
+func hostConfigMounts(keys []string) []corev1.VolumeMount {
+	if len(keys) == 0 {
+		return []corev1.VolumeMount{{Name: volHostConfig, MountPath: HostConfigMountPath, ReadOnly: true}}
+	}
+	keys = slices.Clone(keys)
+	slices.Sort(keys)
+	mounts := make([]corev1.VolumeMount, 0, len(keys))
+	for _, k := range keys {
+		mounts = append(mounts, corev1.VolumeMount{Name: volHostConfig, MountPath: HostConfigMountPath + "/" + k, SubPath: k, ReadOnly: true})
+	}
+	return mounts
 }
 
 // RunnerSelectorLabels are the immutable labels used as the workload selector.
@@ -120,7 +164,7 @@ func RunnerPodTemplate(in RunnerPodInput) corev1.PodTemplateSpec {
 	}
 	if r.HostConfig != nil {
 		volumes = append(volumes, configMapVolume(volHostConfig, r.HostConfig.Name, 0o444))
-		mounts = append(mounts, corev1.VolumeMount{Name: volHostConfig, MountPath: HostConfigMountPath, ReadOnly: true})
+		mounts = append(mounts, hostConfigMounts(in.HostConfigKeys)...)
 		envVars = append(envVars, corev1.EnvVar{Name: "SELF_HOSTED_RUNNER_HOST_CONFIG_DIR", Value: HostConfigMountPath})
 	}
 	for _, v := range pt.Volumes {
