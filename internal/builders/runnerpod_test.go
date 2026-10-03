@@ -61,7 +61,7 @@ func TestWorkOrderSecretName(t *testing.T) {
 }
 
 func TestOnDemandRunnerPod(t *testing.T) {
-	pod := OnDemandRunnerPod(onDemandEnv(), testRunner(), "h1")
+	pod := OnDemandRunnerPod(onDemandEnv(), testRunner(), "h1", nil)
 	if pod.Name != testOrderID || pod.Namespace != testNamespace {
 		t.Fatalf("name/namespace %s/%s", pod.Namespace, pod.Name)
 	}
@@ -103,7 +103,7 @@ func TestOnDemandRunnerPod(t *testing.T) {
 func TestOnDemandRunnerPodForcesCapacityOne(t *testing.T) {
 	env := onDemandEnv()
 	env.Spec.Runner.Capacity = 4 // CEL forbids this, but the builder must still be safe
-	pod := OnDemandRunnerPod(env, testRunner(), "h")
+	pod := OnDemandRunnerPod(env, testRunner(), "h", nil)
 	if !containsSeq(pod.Spec.Containers[0].Args, []string{capacityFlag, "1"}) {
 		t.Fatalf("capacity not forced to 1: %v", pod.Spec.Containers[0].Args)
 	}
@@ -112,7 +112,7 @@ func TestOnDemandRunnerPodForcesCapacityOne(t *testing.T) {
 func TestOnDemandRunnerPodPreWarmHasNoSessionLabel(t *testing.T) {
 	r := testRunner()
 	r.Spec.SessionID = ""
-	pod := OnDemandRunnerPod(onDemandEnv(), r, "h")
+	pod := OnDemandRunnerPod(onDemandEnv(), r, "h", nil)
 	if _, ok := pod.Labels[selfhostedv1alpha1.LabelSessionID]; ok {
 		t.Fatal("pre-warming runners must not carry a session label")
 	}
@@ -122,7 +122,7 @@ func TestOnDemandRunnerPodLabelsLongIDs(t *testing.T) {
 	r := testRunner()
 	r.Spec.OrderID = strings.Repeat("o", 70)
 	r.Spec.SessionID = "session/with/slashes"
-	pod := OnDemandRunnerPod(onDemandEnv(), r, "h")
+	pod := OnDemandRunnerPod(onDemandEnv(), r, "h", nil)
 	if got := pod.Labels[selfhostedv1alpha1.LabelOrderID]; got != selfhostedv1alpha1.LabelValue(r.Spec.OrderID) {
 		t.Fatalf("order label %q", got)
 	}

@@ -34,7 +34,7 @@ const (
 func TestFixedDeployment(t *testing.T) {
 	env := testEnv()
 	env.Spec.Fixed.Replicas = ptr.To[int32](3)
-	d := FixedDeployment(env, "h1")
+	d := FixedDeployment(env, "h1", nil)
 	if d.Name != testWorkloadName || d.Namespace != "claude" {
 		t.Fatalf("name/namespace wrong: %s/%s", d.Namespace, d.Name)
 	}
@@ -69,7 +69,7 @@ func TestFixedStatefulSet(t *testing.T) {
 		VolumeClaimTemplate: corev1.PersistentVolumeClaimSpec{
 			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("20Gi")}}}}
-	s := FixedStatefulSet(env, "h2")
+	s := FixedStatefulSet(env, "h2", nil)
 	if s.Kind != "StatefulSet" || s.Name != testWorkloadName {
 		t.Fatal("statefulset identity wrong")
 	}

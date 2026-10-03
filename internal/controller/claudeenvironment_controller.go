@@ -366,7 +366,7 @@ func (r *ClaudeEnvironmentReconciler) reconcileFixed(ctx context.Context, env *s
 
 	var available bool
 	if env.Spec.Fixed.PersistentWorkspace != nil {
-		sts := builders.FixedStatefulSet(env, hash)
+		sts := builders.FixedStatefulSet(env, hash, builders.HostConfigKeys(env, configMaps))
 		if err := r.apply(ctx, env, sts); err != nil {
 			env.Status.Fixed = nil
 			return ctrl.Result{}, r.applyFailed(env, pass, "StatefulSet", err)
@@ -377,7 +377,7 @@ func (r *ClaudeEnvironmentReconciler) reconcileFixed(ctx context.Context, env *s
 		available = sts.Status.ObservedGeneration == sts.Generation && sts.Status.ReadyReplicas >= desired
 		env.Status.Fixed = &selfhostedv1alpha1.FixedFleetStatus{Replicas: sts.Status.Replicas, ReadyReplicas: sts.Status.ReadyReplicas, UpdatedReplicas: sts.Status.UpdatedReplicas}
 	} else {
-		dep := builders.FixedDeployment(env, hash)
+		dep := builders.FixedDeployment(env, hash, builders.HostConfigKeys(env, configMaps))
 		if err := r.apply(ctx, env, dep); err != nil {
 			env.Status.Fixed = nil
 			return ctrl.Result{}, r.applyFailed(env, pass, "Deployment", err)
