@@ -2,12 +2,22 @@
 # runs `claude self-hosted-runner` or `claude self-hosted-runner orchestrator`.
 FROM debian:bookworm-slim
 ARG CLAUDE_CODE_VERSION
-ARG CLAUDE_ARCH=linux-x64
+# Release platform of the Claude binary; empty derives it from the build platform.
+ARG CLAUDE_ARCH=
+ARG TARGETARCH
 ARG RUNNER_UID=10001
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git curl ca-certificates openssh-client \
  && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL "https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION:?set with --build-arg CLAUDE_CODE_VERSION}/${CLAUDE_ARCH}/claude" \
+RUN arch="${CLAUDE_ARCH:-}"; \
+    if [ -z "$arch" ]; then \
+      case "${TARGETARCH:-amd64}" in \
+        amd64) arch=linux-x64 ;; \
+        arm64) arch=linux-arm64 ;; \
+        *) echo "unsupported TARGETARCH ${TARGETARCH}; set --build-arg CLAUDE_ARCH" >&2; exit 1 ;; \
+      esac; \
+    fi; \
+    curl -fsSL "https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION:?set with --build-arg CLAUDE_CODE_VERSION}/${arch}/claude" \
       -o /usr/local/bin/claude \
  && chmod 0755 /usr/local/bin/claude
 # Verify the binary against the release's signed manifest before promoting the

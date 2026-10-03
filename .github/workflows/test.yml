@@ -23,6 +23,9 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Check the hook copy
+        run: hack/check-hook-copy.sh
+
       - name: Running Tests
         run: |
           go mod tidy
@@ -55,6 +58,6 @@ jobs:
       - name: Unit and envtest suites under -race
         run: |
           make manifests generate setup-envtest
-          K8S_VERSION="$(printf 'print-%%:\n\t@echo $($*)\n' | make -s -f Makefile -f - print-ENVTEST_K8S_VERSION)"
+          K8S_VERSION="$(make -s print-envtest-version)"
           KUBEBUILDER_ASSETS="$("$PWD/bin/setup-envtest" use "$K8S_VERSION" --bin-dir "$PWD/bin" -p path)" \
             go test -race ./internal/... ./cmd/...

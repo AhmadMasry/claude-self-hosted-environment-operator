@@ -99,7 +99,8 @@ Set `spec.runner.networkPolicy.enabled: true`. The operator then manages:
 the 10-minute resync); until then an enforcing CNI blocks the hook.
 
   When the manager flag `--apiserver-endpoints` (chart value `networkPolicy.apiServerEndpoints`, a list of
-  `ip:port`, IPv6 bracketed) is set, the policy allows every listed port to every listed address instead,
+  `ip:port`, IPv6 bracketed) is set, the policy allows every listed port to every listed address instead (an address x port cross-product, so
+  `10.0.0.1:6443,10.0.0.2:443` also opens 10.0.0.1:443 and 10.0.0.2:6443),
   and the Endpoints are not read. The chart's `rbac.namespaced=true` cannot grant `get` on
   `default/kubernetes`, so that mode requires the value whenever an on-demand environment enables the
   policy; a control-plane IP change then needs a value update and a manager restart.

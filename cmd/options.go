@@ -143,7 +143,8 @@ func registerFlags(fs *flag.FlagSet) *options {
 	fs.Float64Var(&o.tracingSampleRatio, "tracing-sample-ratio", 0.1,
 		"Fraction of root traces to sample when tracing is enabled")
 	fs.StringVar(&o.apiServerEndpoints, "apiserver-endpoints", "",
-		"Comma-separated ip:port list of the Kubernetes API server for the orchestrator egress NetworkPolicy. "+
+		"Comma-separated ip:port list of the Kubernetes API server for the orchestrator egress NetworkPolicy, "+
+			"applied as an address x port cross-product (every address on every port). "+
 			"Empty reads the default/kubernetes Endpoints, which namespaced RBAC cannot.")
 	return o
 }

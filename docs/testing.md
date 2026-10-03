@@ -48,7 +48,8 @@ in on-demand mode requires the orchestrator pod to be ready, and its readiness p
 endpoint to report the orchestrator connected, so this proves it authenticated to Anthropic with the key. No session is created and nothing is billed.
 
 **Level 2, session** (runs only when `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` is set, or `claude auth status`
-reports a login on the machine; otherwise the script prints that level 2 was skipped and exits 0). The script
+reports a claude.ai login on the machine; the script reads its default JSON output and requires
+`loggedIn == true` and `authMethod == "claude.ai"`, so an API-key login skips level 2; otherwise the script prints that level 2 was skipped and exits 0). The script
 starts one session routed to the environment, and asserts that:
 
 1. the CLI returns a `session_id`;
@@ -166,6 +167,14 @@ blocks.
 (`test/real-e2e/runner.Dockerfile`). The image bundles Anthropic's binary: it is built locally or in the
 job, loaded into kind, and never pushed or published. The reply sink image (`make replysink-image`) is
 likewise local only.
+
+The `real-e2e` workflow's diagnostics step prints the resource listing and the manager logs only; runner,
+orchestrator and reply sink logs are not printed, because a session's content could appear in them. The
+reply sink and runner base images in `test/replysink/Dockerfile` are pinned by digest; the example runner
+image picks the Claude binary from `TARGETARCH` (override with `--build-arg CLAUDE_ARCH`). Resolving
+`CLAUDE_CODE_VERSION` to an empty string (the stable-release lookup failing) fails `make real-runner-image`
+immediately. `hack/check-hook-copy.sh` (run by `make lint` and the `test` workflow) fails when the Stop hook
+embedded in `test/real-e2e/host-config.yaml` differs from `test/real-e2e/capture-reply.sh`.
 
 ### Cost
 

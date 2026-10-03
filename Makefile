@@ -108,8 +108,9 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
 .PHONY: lint
-lint: golangci-lint ## Run golangci-lint linter
+lint: golangci-lint ## Run golangci-lint linter and the hook-copy check
 	"$(GOLANGCI_LINT)" run
+	hack/check-hook-copy.sh
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
@@ -157,6 +158,7 @@ replysink-image: ## Build the reply sink used by the real-environment test.
 
 .PHONY: real-runner-image
 real-runner-image: ## Build the real-environment test runner image (never pushed).
+	@[ -n "$(CLAUDE_CODE_VERSION)" ] || { echo "CLAUDE_CODE_VERSION resolved empty: the stable-release lookup failed; pass CLAUDE_CODE_VERSION=<x.y.z>" >&2; exit 1; }
 	$(CONTAINER_TOOL) build -t example.com/claude-runner:real-e2e --build-arg CLAUDE_CODE_VERSION=$(CLAUDE_CODE_VERSION) examples/runner-image
 	$(CONTAINER_TOOL) build -t $(REAL_RUNNER_IMG) --build-arg BASE=example.com/claude-runner:real-e2e -f test/real-e2e/runner.Dockerfile .
 
@@ -267,6 +269,10 @@ ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; 
 ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   [ -n "$$v" ] || { echo "Set ENVTEST_K8S_VERSION manually (k8s.io/api replace has no tag)" >&2; exit 1; }; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
+
+.PHONY: print-envtest-version
+print-envtest-version: ## Print the envtest Kubernetes version (used by CI).
+	@echo $(ENVTEST_K8S_VERSION)
 
 GOLANGCI_LINT_VERSION ?= v2.13.1
 KUBEBUILDER_VERSION ?= v4.16.0

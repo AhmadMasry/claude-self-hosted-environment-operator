@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Real-environment test. Level 1 (always): the orchestrator registers with
 # Anthropic using CLAUDE_ENVIRONMENT_KEY and the environment reports Ready.
-# Level 2 (when CLAUDE_CODE_OAUTH_REFRESH_TOKEN is set, or `claude auth login`
-# already happened on this machine): start a session routed to
+# Level 2 (when CLAUDE_CODE_OAUTH_REFRESH_TOKEN is set, or `claude auth status`
+# reports a claude.ai login on this machine): start a session routed to
 # CLAUDE_ENVIRONMENT_ID and check the reply, the ClaudeRunner lifecycle and GC.
 # Needs: kubectl against a cluster running the operator, envsubst, jq, curl,
 # git, and claude v2.1.224 or later for level 2. Run from the repository root.
@@ -17,6 +17,20 @@ OPERATOR_NAMESPACE=${OPERATOR_NAMESPACE:-claude-selfhosted-operator-system}
 TEST_REPO=${TEST_REPO:-}
 TEST_REF=${TEST_REF:-}
 export NAMESPACE RUNNER_IMAGE
+workdir=$PWD
+pf=
+cleanup() {
+  [ -z "$pf" ] || kill "$pf" 2>/dev/null || true
+  [ -z "${pf_log:-}" ] || rm -f "$pf_log"
+  [ "$workdir" = "$PWD" ] || rm -rf "$workdir"
+}
+trap cleanup EXIT
+
+# claude_ai_login succeeds when `claude auth status` (JSON by default) reports
+# a logged-in claude.ai account; an API-key login cannot start a session.
+claude_ai_login() {
+  claude auth status --json 2>/dev/null | jq -e '.loggedIn == true and .authMethod == "claude.ai"' >/dev/null 2>&1
+}
 
 echo "== operator ready"
 kubectl wait --for=condition=Established crd/claudeenvironments.selfhosted.claudecode.dev crd/clauderunners.selfhosted.claudecode.dev --timeout=60s
@@ -37,36 +51,41 @@ echo "== level 1: orchestrator connected"
 kubectl wait -n "$NAMESPACE" claudeenvironment/real --for=condition=Ready=True --timeout=300s
 kubectl get -n "$NAMESPACE" claudeenvironment/real -o jsonpath='{.status.conditions}' | jq .
 
-if [ -z "${CLAUDE_CODE_OAUTH_REFRESH_TOKEN:-}" ] && ! claude auth status >/dev/null 2>&1; then
-  echo "== level 2 skipped: no CLAUDE_CODE_OAUTH_REFRESH_TOKEN and no claude login on this machine"
-  exit 0
-fi
 if [ -n "${CLAUDE_CODE_OAUTH_REFRESH_TOKEN:-}" ]; then
   : "${CLAUDE_CODE_OAUTH_SCOPES:?CLAUDE_CODE_OAUTH_SCOPES is required with CLAUDE_CODE_OAUTH_REFRESH_TOKEN}"
   echo "== level 2: logging in with the refresh token"
   claude auth login >/dev/null
+elif ! claude_ai_login; then
+  echo "== level 2 skipped: no CLAUDE_CODE_OAUTH_REFRESH_TOKEN and no claude.ai login on this machine"
+  exit 0
+fi
+if ! claude_ai_login; then
+  echo "level 2: claude auth status does not report a claude.ai login" >&2
+  exit 1
 fi
 
 # The CLI has no repository flag: it reads the repository from the origin
 # remote of the checkout it runs in, and --ref names the branch to check out.
-workdir=$PWD
 if [ -n "$TEST_REPO" ]; then
   workdir=$(mktemp -d)
   git clone -q --depth 1 ${TEST_REF:+--branch "$TEST_REF"} "https://github.com/$TEST_REPO.git" "$workdir"
 fi
-TEST_REF=${TEST_REF:-$(git -C "$workdir" rev-parse --abbrev-ref HEAD)}
-echo "repository: $(git -C "$workdir" remote get-url origin) ref: $TEST_REF"
+if [ -z "$TEST_REF" ]; then
+  TEST_REF=$(git -C "$workdir" rev-parse --abbrev-ref HEAD)
+  # A detached HEAD reports "HEAD": use the commit instead.
+  [ "$TEST_REF" != HEAD ] || TEST_REF=$(git -C "$workdir" rev-parse HEAD)
+fi
+echo "repository: ${TEST_REPO:-the current checkout} ref: $TEST_REF"
 
 echo "== level 2: starting a session"
 pf_log=$(mktemp)
 kubectl port-forward -n "$NAMESPACE" svc/replysink 18080:8080 >"$pf_log" 2>&1 &
 pf=$!
-trap 'kill $pf 2>/dev/null || true' EXIT
 sleep 2
 marker="operator-real-e2e-$(date +%s)"
 result=$(cd "$workdir" && claude -p "Reply with exactly the text: $marker" --environment "$CLAUDE_ENVIRONMENT_ID" --ref "$TEST_REF" --output-format json)
 echo "create: $result"
-session_id=$(printf '%s' "$result" | jq -er '.session_id')
+session_id=$(printf '%s' "$result" | jq -er '.session_id') || { echo "claude -p returned no session_id; output above" >&2; exit 1; }
 echo "session $session_id"
 
 echo "== level 2: runner lifecycle"
@@ -77,7 +96,7 @@ for _ in $(seq 1 60); do
   sleep 5
 done
 echo "runner phase: ${phase:-none}"
-[ -n "$phase" ]
+[ -n "$phase" ] || { echo "no ClaudeRunner appeared for session $session_id within 300s" >&2; exit 1; }
 
 echo "== level 2: reply captured"
 reply=
@@ -87,15 +106,20 @@ for _ in $(seq 1 60); do
 done
 [ -n "$reply" ] || { echo "no reply for $session_id in the sink" >&2; cat "$pf_log" >&2; exit 1; }
 echo "$reply" | jq .
-printf '%s' "$reply" | jq -e --arg m "$marker" '.reply | contains($m)' >/dev/null
+printf '%s' "$reply" | jq -e --arg m "$marker" '.reply | contains($m)' >/dev/null ||
+  { echo "the sink's reply for $session_id does not contain the marker $marker" >&2; exit 1; }
 
 echo "== level 2: runner reaches Succeeded and is garbage collected"
-kubectl wait -n "$NAMESPACE" clauderunners -l selfhosted.claudecode.dev/environment=real --for=jsonpath='{.status.phase}'=Succeeded --timeout=600s
-n=
+kubectl wait -n "$NAMESPACE" clauderunners -l selfhosted.claudecode.dev/environment=real --for=jsonpath='{.status.phase}'=Succeeded --timeout=600s ||
+  { echo "the ClaudeRunner did not reach Succeeded within 600s" >&2; exit 1; }
+# A failed kubectl call is not "zero runners": keep polling until a call succeeds and lists none.
+n=unknown
 for _ in $(seq 1 40); do
-  n=$(kubectl get -n "$NAMESPACE" clauderunners -l selfhosted.claudecode.dev/environment=real -o name | wc -l | tr -d ' ')
-  [ "$n" = 0 ] && break
+  if out=$(kubectl get -n "$NAMESPACE" clauderunners -l selfhosted.claudecode.dev/environment=real -o name 2>/dev/null); then
+    n=$(printf '%s' "$out" | grep -c . || true)
+    [ "$n" = 0 ] && break
+  fi
   sleep 5
 done
-[ "$n" = 0 ]
+[ "$n" = 0 ] || { echo "ClaudeRunner objects remain after 200s (count: $n)" >&2; exit 1; }
 echo "== real-environment test passed"

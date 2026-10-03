@@ -76,8 +76,6 @@ jobs:
         run: |
           kubectl get claudeenvironments,clauderunners,pods -A -o wide || true
           kubectl logs -n claude-selfhosted-operator-system deployment/claude-selfhosted-operator-controller-manager --tail=300 || true
-          kubectl logs -n claude-real-e2e -l selfhosted.claudecode.dev/environment=real --all-containers --tail=200 || true
-          kubectl logs -n claude-real-e2e deployment/replysink --tail=100 || true
 
       - name: Teardown
         if: always() && inputs.keep_cluster != 'true'
