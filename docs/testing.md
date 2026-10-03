@@ -82,6 +82,13 @@ into each session's config directory. The mount is not executable, so `settings.
 `test/real-e2e/capture-reply.sh` is a copy of the embedded script kept for `shellcheck`; keep the two
 identical.
 
+When level 2 fails, the script prints redacted evidence to stderr: the `ClaudeRunner` objects, the
+namespace events, the sink's request log, the runner pod's log (streamed from the moment the pod appears,
+because the pod is garbage-collected soon after the session ends) and, read through `kubectl exec` while the
+pod ran, the host-config mount, each session's seeded config directory under `/workspace/_sessions` with its
+`settings.json`, and the hook's trace. The hook appends that trace to `/tmp/capture-reply.log` in the pod:
+whether it ran, which session id and sink URL it saw, the keys of its input and curl's result.
+
 ### Prerequisites
 
 - A self-hosted environment in a Team or Enterprise organization with **Allow self-hosted environments**
