@@ -208,6 +208,13 @@ prometheus:
 networkPolicy:
   enabled: false
 
+  ## API server addresses (ip:port, IPv6 bracketed) for the orchestrator egress
+  ## NetworkPolicy of on-demand environments. Empty reads the default/kubernetes
+  ## Endpoints, which rbac.namespaced=true does not grant: in that mode this list
+  ## is required whenever an on-demand environment enables spec.runner.networkPolicy.
+  ## Find the values with: kubectl get endpoints kubernetes -n default
+  apiServerEndpoints: []
+
 
 # ValidatingAdmissionPolicy confining each orchestrator ServiceAccount to its
 # own work orders. Requires Kubernetes 1.30 or later; disable on older clusters.

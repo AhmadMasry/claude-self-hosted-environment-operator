@@ -90,6 +90,9 @@ spec:
         - "--tracing-endpoint={{ . }}"
         {{- end }}
         - "--tracing-sample-ratio={{ .Values.tracing.sampleRatio }}"
+        {{- with .Values.networkPolicy.apiServerEndpoints }}
+        - "--apiserver-endpoints={{ join "," . }}"
+        {{- end }}
         {{- range .Values.manager.args }}
         - {{ tpl . $ }}
         {{- end }}

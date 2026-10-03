@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 	"sync"
@@ -74,10 +75,14 @@ type ClaudeEnvironmentReconciler struct {
 	// HookImage is the operator's own image, used by the init container that
 	// installs the spawn-runner hook into orchestrator pods.
 	HookImage string
+	// APIServerEndpoints, when non-empty, are the API server addresses for the
+	// orchestrator egress policy; the default/kubernetes Endpoints is then not
+	// read, so namespaced RBAC suffices.
+	APIServerEndpoints []netip.AddrPort
 	// Clock is the time source; nil means time.Now.
 	Clock Clock
 
-	mu sync.RWMutex // guards HookImage after construction
+	mu sync.RWMutex // guards HookImage and APIServerEndpoints after construction
 }
 
 func (r *ClaudeEnvironmentReconciler) now() time.Time { return tick(r.Clock) }
@@ -93,6 +98,20 @@ func (r *ClaudeEnvironmentReconciler) hookImage() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.HookImage
+}
+
+// SetAPIServerEndpoints replaces the configured API server endpoints at
+// runtime; tests use it.
+func (r *ClaudeEnvironmentReconciler) SetAPIServerEndpoints(endpoints []netip.AddrPort) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.APIServerEndpoints = endpoints
+}
+
+func (r *ClaudeEnvironmentReconciler) apiServerEndpoints() []netip.AddrPort {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.APIServerEndpoints
 }
 
 // +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=claudeenvironments,verbs=get;list;watch;create;update;patch;delete
@@ -224,11 +243,10 @@ func (r *ClaudeEnvironmentReconciler) reconcileNetworkPolicy(ctx context.Context
 		}
 		return nil
 	}
-	endpoints := &corev1.Endpoints{} //nolint:staticcheck // the ruled design reads the single default/kubernetes object
-	if err := r.Reader.Get(ctx, types.NamespacedName{Namespace: metav1.NamespaceDefault, Name: "kubernetes"}, endpoints); err != nil {
-		return r.applyFailed(env, pass, "NetworkPolicy", fmt.Errorf("read API server endpoints: %w", err))
+	obj, err := r.apiServerNetworkPolicy(ctx, env)
+	if err != nil {
+		return r.applyFailed(env, pass, "NetworkPolicy", err)
 	}
-	obj := builders.APIServerNetworkPolicy(env, endpoints)
 	if len(obj.Spec.Egress[0].To) == 0 || len(obj.Spec.Egress[0].Ports) == 0 {
 		return r.applyFailed(env, pass, "NetworkPolicy", fmt.Errorf("read API server endpoints: default/kubernetes lists no addresses or ports"))
 	}
@@ -239,6 +257,19 @@ func (r *ClaudeEnvironmentReconciler) reconcileNetworkPolicy(ctx context.Context
 		return r.applyFailed(env, pass, "NetworkPolicy", err)
 	}
 	return nil
+}
+
+// apiServerNetworkPolicy builds the orchestrator's API server policy from the
+// configured endpoints, or from default/kubernetes when none are configured.
+func (r *ClaudeEnvironmentReconciler) apiServerNetworkPolicy(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment) (*networkingv1.NetworkPolicy, error) {
+	if configured := r.apiServerEndpoints(); len(configured) > 0 {
+		return builders.APIServerNetworkPolicyFromAddrPorts(env, configured), nil
+	}
+	endpoints := &corev1.Endpoints{} //nolint:staticcheck // the ruled design reads the single default/kubernetes object
+	if err := r.Reader.Get(ctx, types.NamespacedName{Namespace: metav1.NamespaceDefault, Name: "kubernetes"}, endpoints); err != nil {
+		return nil, fmt.Errorf("read API server endpoints: %w", err)
+	}
+	return builders.APIServerNetworkPolicy(env, endpoints), nil
 }
 
 func (r *ClaudeEnvironmentReconciler) resolveSecret(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) (*corev1.Secret, bool, error) {

@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -103,6 +104,17 @@ var _ = Describe("ClaudeEnvironment CEL validation", func() {
 		Entry("egress CIDR out of IPv4 CIDR syntax", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Runner.NetworkPolicy = &selfhostedv1alpha1.NetworkPolicySpec{Enabled: true, EgressCIDRs: []string{testEgressCIDR, "not-a-cidr"}}
 		}, "egressCIDRs must be IPv4 CIDRs"),
+		Entry("egress CIDR with an octet above 255", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Runner.NetworkPolicy = &selfhostedv1alpha1.NetworkPolicySpec{Enabled: true, EgressCIDRs: []string{"999.1.1.1/8"}}
+		}, "egressCIDRs must be IPv4 CIDRs"),
+		Entry("orchestrator env over 64 entries", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Fixed = nil
+			env := make([]corev1.EnvVar, 65)
+			for i := range env {
+				env[i] = corev1.EnvVar{Name: fmt.Sprintf("VAR_%d", i), Value: "x"}
+			}
+			e.Spec.OnDemand = &selfhostedv1alpha1.OnDemandSpec{Orchestrator: selfhostedv1alpha1.OrchestratorSpec{Env: env}}
+		}, "must have at most 64 items"),
 		Entry("orchestrator env var with an operator-owned name", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Fixed = nil
 			e.Spec.OnDemand = &selfhostedv1alpha1.OnDemandSpec{Orchestrator: selfhostedv1alpha1.OrchestratorSpec{
@@ -154,6 +166,9 @@ var _ = Describe("ClaudeEnvironment CEL validation", func() {
 		Entry("onDemand defaults", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Fixed = nil
 			e.Spec.OnDemand = &selfhostedv1alpha1.OnDemandSpec{}
+		}),
+		Entry("egress CIDR with valid octets", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Runner.NetworkPolicy = &selfhostedv1alpha1.NetworkPolicySpec{Enabled: true, EgressCIDRs: []string{"10.0.0.0/8", "255.255.255.255/32"}}
 		}),
 	)
 })

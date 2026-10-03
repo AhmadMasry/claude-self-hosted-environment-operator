@@ -68,6 +68,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
+	apiServerEndpoints, err := parseAPIServerEndpoints(o.apiServerEndpoints)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), zap.UseDevMode(o.logFormat == "text"), zap.Level(lvl)))
 	setupLog.Info("Starting claude-selfhosted-operator",
 		"version", version, "logFormat", o.logFormat, "hookImage", o.hookImage)
@@ -192,8 +197,9 @@ func main() {
 		Reader: mgr.GetAPIReader(),
 		Scheme: mgr.GetScheme(),
 		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
-		Recorder:  mgr.GetEventRecorderFor("claude-selfhosted-operator"),
-		HookImage: o.hookImage,
+		Recorder:           mgr.GetEventRecorderFor("claude-selfhosted-operator"),
+		HookImage:          o.hookImage,
+		APIServerEndpoints: apiServerEndpoints,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "claudeenvironment")
 		os.Exit(1)

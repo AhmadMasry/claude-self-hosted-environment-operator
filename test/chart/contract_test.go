@@ -165,6 +165,9 @@ func TestChartManagerIsRestricted(t *testing.T) {
 	if _, ok := argValue(mgr.Args, "--tracing-endpoint"); ok {
 		t.Fatalf("--tracing-endpoint must be omitted when empty so OTEL_EXPORTER_OTLP_ENDPOINT applies: %v", mgr.Args)
 	}
+	if _, ok := argValue(mgr.Args, "--apiserver-endpoints"); ok {
+		t.Fatalf("--apiserver-endpoints must be omitted when empty so the manager reads default/kubernetes: %v", mgr.Args)
+	}
 }
 
 func TestChartManagerFlagsFollowValues(t *testing.T) {
@@ -178,6 +181,17 @@ func TestChartManagerFlagsFollowValues(t *testing.T) {
 	}
 	if got, _ := argValue(mgr.Args, "--tracing-endpoint"); got != endpoint {
 		t.Fatalf("--tracing-endpoint = %q, want %q", got, endpoint)
+	}
+}
+
+func TestChartAPIServerEndpointsFlag(t *testing.T) {
+	_, mgr := managerPod(t, render(t, "networkPolicy.apiServerEndpoints={10.0.0.1:6443}"))
+	if got, ok := argValue(mgr.Args, "--apiserver-endpoints"); !ok || got != "10.0.0.1:6443" {
+		t.Fatalf("--apiserver-endpoints = %q (present %v), want 10.0.0.1:6443: %v", got, ok, mgr.Args)
+	}
+	_, mgr = managerPod(t, render(t, "networkPolicy.apiServerEndpoints={10.0.0.1:6443,[fd00::1]:443}"))
+	if got, _ := argValue(mgr.Args, "--apiserver-endpoints"); got != "10.0.0.1:6443,[fd00::1]:443" {
+		t.Fatalf("--apiserver-endpoints must join the list with commas, got %q", got)
 	}
 }
 

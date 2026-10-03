@@ -18,6 +18,7 @@ package builders
 
 import (
 	"net"
+	"net/netip"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -91,20 +92,53 @@ func APIServerNetworkPolicyName(env *selfhostedv1alpha1.ClaudeEnvironment) strin
 // server, whose addresses and ports come from the default/kubernetes
 // Endpoints, so its spawn hook can create work-order Secrets and ClaudeRunners
 // under the default-deny policy. NetworkPolicy cannot name a Service, so the
-// endpoint addresses are used as /32 blocks.
+// endpoint addresses are used as host blocks.
 func APIServerNetworkPolicy(env *selfhostedv1alpha1.ClaudeEnvironment, endpoints *corev1.Endpoints) *networkingv1.NetworkPolicy { //nolint:staticcheck // Endpoints is the only API read with get on a single named object; default/kubernetes is still maintained
-	tcp := corev1.ProtocolTCP
-	rule := networkingv1.NetworkPolicyEgressRule{}
-	seenPort := map[int32]bool{}
+	var addrs []netip.Addr
+	var ports []uint16
 	for _, subset := range endpoints.Subsets {
-		for _, addr := range subset.Addresses {
-			rule.To = append(rule.To, networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: addr.IP + "/32"}})
+		for _, a := range subset.Addresses {
+			if ip, err := netip.ParseAddr(a.IP); err == nil {
+				addrs = append(addrs, ip)
+			}
 		}
 		for _, p := range subset.Ports {
-			if !seenPort[p.Port] {
-				seenPort[p.Port] = true
-				rule.Ports = append(rule.Ports, networkingv1.NetworkPolicyPort{Protocol: &tcp, Port: new(intstr.FromInt32(p.Port))})
-			}
+			ports = append(ports, uint16(p.Port))
+		}
+	}
+	return apiServerNetworkPolicy(env, addrs, ports)
+}
+
+// APIServerNetworkPolicyFromAddrPorts builds the same policy from a configured
+// address list (--apiserver-endpoints) instead of the Endpoints object, for
+// installs whose RBAC cannot read the default namespace. The rule allows every
+// listed port to every listed address.
+func APIServerNetworkPolicyFromAddrPorts(env *selfhostedv1alpha1.ClaudeEnvironment, endpoints []netip.AddrPort) *networkingv1.NetworkPolicy {
+	addrs := make([]netip.Addr, 0, len(endpoints))
+	ports := make([]uint16, 0, len(endpoints))
+	for _, ep := range endpoints {
+		addrs = append(addrs, ep.Addr())
+		ports = append(ports, ep.Port())
+	}
+	return apiServerNetworkPolicy(env, addrs, ports)
+}
+
+func apiServerNetworkPolicy(env *selfhostedv1alpha1.ClaudeEnvironment, addrs []netip.Addr, ports []uint16) *networkingv1.NetworkPolicy {
+	tcp := corev1.ProtocolTCP
+	rule := networkingv1.NetworkPolicyEgressRule{}
+	seenAddr := map[netip.Addr]bool{}
+	for _, a := range addrs {
+		a = a.Unmap()
+		if !seenAddr[a] {
+			seenAddr[a] = true
+			rule.To = append(rule.To, networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: netip.PrefixFrom(a, a.BitLen()).String()}})
+		}
+	}
+	seenPort := map[uint16]bool{}
+	for _, p := range ports {
+		if !seenPort[p] {
+			seenPort[p] = true
+			rule.Ports = append(rule.Ports, networkingv1.NetworkPolicyPort{Protocol: &tcp, Port: new(intstr.FromInt32(int32(p)))})
 		}
 	}
 	labels := map[string]string{selfhostedv1alpha1.LabelEnvironment: env.Name, selfhostedv1alpha1.LabelPartOf: selfhostedv1alpha1.PartOfValue}

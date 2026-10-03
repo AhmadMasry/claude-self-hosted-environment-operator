@@ -452,6 +452,7 @@ spec:
                           required:
                           - name
                           type: object
+                        maxItems: 64
                         type: array
                       expectedSpawnSeconds:
                         default: 120
@@ -3246,7 +3247,7 @@ spec:
                         type: array
                         x-kubernetes-validations:
                         - message: egressCIDRs must be IPv4 CIDRs
-                          rule: self.all(c, c.matches('^[0-9]{1,3}(\\.[0-9]{1,3}){3}/[0-9]{1,2}$'))
+                          rule: self.all(c, c.matches('^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/([0-9]|[12][0-9]|3[0-2])$'))
                       enabled:
                         type: boolean
                     type: object

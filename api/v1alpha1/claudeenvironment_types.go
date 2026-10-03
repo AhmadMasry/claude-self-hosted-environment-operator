@@ -167,7 +167,7 @@ type NetworkPolicySpec struct {
 	Enabled bool `json:"enabled,omitempty"`
 	// +kubebuilder:validation:MaxItems=64
 	// +kubebuilder:validation:items:MaxLength=18
-	// +kubebuilder:validation:XValidation:rule="self.all(c, c.matches('^[0-9]{1,3}(\\\\.[0-9]{1,3}){3}/[0-9]{1,2}$'))",message="egressCIDRs must be IPv4 CIDRs"
+	// +kubebuilder:validation:XValidation:rule="self.all(c, c.matches('^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/([0-9]|[12][0-9]|3[0-2])$'))",message="egressCIDRs must be IPv4 CIDRs"
 	// +optional
 	EgressCIDRs []string `json:"egressCIDRs,omitempty"`
 }
@@ -222,6 +222,7 @@ type OrchestratorSpec struct {
 	// +kubebuilder:default=8080
 	// +optional
 	HealthPort *int32 `json:"healthPort,omitempty"`
+	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
 	// +kubebuilder:default={}

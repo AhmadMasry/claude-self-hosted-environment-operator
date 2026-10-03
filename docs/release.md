@@ -2,7 +2,7 @@
 
 Releases are cut by pushing a `vX.Y.Z` tag on `master`. The `release` workflow builds the multi-arch image, signs it, attaches an SBOM attestation, packages the Helm chart and publishes a GitHub Release.
 
-Only a `vX.Y.Z` tag push publishes. A manual dispatch is always a dry run: the workflow refuses a dispatch with `dry_run=false` and fails before building anything. The version (from the tag, or the `version` input on a dispatch) must be a semantic version, `X.Y.Z` with an optional `-prerelease` or `+build` suffix, or the workflow fails.
+A run on a `vX.Y.Z` tag ref publishes: a tag push, or a manual dispatch with the tag picked as the ref (the `dry_run` input is then ignored). A manual dispatch from a branch is always a dry run: the workflow refuses a branch dispatch with `dry_run=false` and fails before building anything. The version (from the tag, or the `version` input on a branch dispatch) must be a semantic version, `X.Y.Z` with an optional `-prerelease` suffix, or the workflow fails; `+build` metadata is refused because image tags cannot carry it.
 
 - Image: `ghcr.io/ahmadmasry/claude-self-hosted-environment-operator`, tagged `vX.Y.Z`, plus the floating `vX.Y` tag for a plain `X.Y.Z` version only (a prerelease such as `v1.2.0-rc.1` never moves `v1.2`). There is no `latest` tag; consumers pin `vX.Y.Z` or `vX.Y`.
 - Chart: `oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator`, version `X.Y.Z`.

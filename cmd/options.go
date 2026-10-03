@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/netip"
 	"os"
 	"strings"
 
@@ -48,6 +49,28 @@ func parseWatchNamespaces(s string) map[string]cache.Config {
 		out[ns] = cache.Config{}
 	}
 	return out
+}
+
+// parseAPIServerEndpoints parses --apiserver-endpoints, a comma-separated list
+// of ip:port (IPv6 bracketed). An empty list returns nil, which makes the
+// controller read the default/kubernetes Endpoints instead.
+func parseAPIServerEndpoints(s string) ([]netip.AddrPort, error) {
+	var out []netip.AddrPort
+	for part := range strings.SplitSeq(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		ap, err := netip.ParseAddrPort(part)
+		if err != nil {
+			return nil, fmt.Errorf("--apiserver-endpoints: %w", err)
+		}
+		if ap.Addr().Zone() != "" || ap.Port() == 0 {
+			return nil, fmt.Errorf("--apiserver-endpoints: %q needs a non-zero port and no IPv6 zone", part)
+		}
+		out = append(out, ap)
+	}
+	return out, nil
 }
 
 func parseLogLevel(s string) (zapcore.Level, error) {
@@ -82,6 +105,7 @@ type options struct {
 	hookImage            string
 	tracingEndpoint      string
 	tracingSampleRatio   float64
+	apiServerEndpoints   string
 }
 
 // registerFlags declares the manager's flags on fs and returns the options
@@ -118,5 +142,8 @@ func registerFlags(fs *flag.FlagSet) *options {
 		"OTLP gRPC endpoint for traces; empty disables tracing")
 	fs.Float64Var(&o.tracingSampleRatio, "tracing-sample-ratio", 0.1,
 		"Fraction of root traces to sample when tracing is enabled")
+	fs.StringVar(&o.apiServerEndpoints, "apiserver-endpoints", "",
+		"Comma-separated ip:port list of the Kubernetes API server for the orchestrator egress NetworkPolicy. "+
+			"Empty reads the default/kubernetes Endpoints, which namespaced RBAC cannot.")
 	return o
 }

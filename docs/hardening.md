@@ -98,7 +98,13 @@ Set `spec.runner.networkPolicy.enabled: true`. The operator then manages:
   up on the next reconcile of the environment (any change to it, its runners or its pods, and at the latest
 the 10-minute resync); until then an enforcing CNI blocks the hook.
 
-`egressCIDRs` takes IPv4 CIDRs only (CEL: "egressCIDRs must be IPv4 CIDRs"), at most 64 entries. A
+  When the manager flag `--apiserver-endpoints` (chart value `networkPolicy.apiServerEndpoints`, a list of
+  `ip:port`, IPv6 bracketed) is set, the policy allows every listed port to every listed address instead,
+  and the Endpoints are not read. The chart's `rbac.namespaced=true` cannot grant `get` on
+  `default/kubernetes`, so that mode requires the value whenever an on-demand environment enables the
+  policy; a control-plane IP change then needs a value update and a manager restart.
+
+`egressCIDRs` takes IPv4 CIDRs only, octets 0 to 255 and prefix 0 to 32 (CEL: "egressCIDRs must be IPv4 CIDRs"), at most 64 entries. A
 NetworkPolicy cannot name hosts, so list the address ranges of `api.anthropic.com` and your git host
 (see [Network requirements](https://code.claude.com/docs/en/self-hosted-environments-deploy#network-requirements)
 for the full list, for example `downloads.claude.ai` when sessions install plugins). Ranges can change; if

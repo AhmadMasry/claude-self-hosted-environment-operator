@@ -1,10 +1,12 @@
 package builders
 
 import (
+	"net/netip"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
@@ -93,5 +95,29 @@ func TestAPIServerNetworkPolicyUnionsPortsAcrossSubsets(t *testing.T) {
 	rule := APIServerNetworkPolicy(testEnv(), ep).Spec.Egress[0]
 	if len(rule.To) != 2 || len(rule.Ports) != 2 || rule.Ports[0].Port.IntVal != 6443 || rule.Ports[1].Port.IntVal != 443 {
 		t.Fatalf("expected both addresses and the union of ports, got %+v", rule)
+	}
+}
+
+func TestAPIServerNetworkPolicyFromAddrPorts(t *testing.T) {
+	env := testEnv()
+	np := APIServerNetworkPolicyFromAddrPorts(env, []netip.AddrPort{
+		netip.MustParseAddrPort("10.0.0.1:6443"),
+		netip.MustParseAddrPort("10.0.0.1:443"),
+		netip.MustParseAddrPort("[fd00::1]:6443"),
+	})
+	//nolint:staticcheck // see APIServerNetworkPolicy
+	fromEndpoints := APIServerNetworkPolicy(env, &corev1.Endpoints{Subsets: []corev1.EndpointSubset{{
+		Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}},
+		Ports:     []corev1.EndpointPort{{Port: 6443}},
+	}}})
+	if np.Name != fromEndpoints.Name || !equality.Semantic.DeepEqual(np.Spec.PodSelector, fromEndpoints.Spec.PodSelector) || !equality.Semantic.DeepEqual(np.Labels, fromEndpoints.Labels) {
+		t.Fatalf("both sources must build the same policy shape: %+v vs %+v", np.ObjectMeta, fromEndpoints.ObjectMeta)
+	}
+	rule := np.Spec.Egress[0]
+	if len(rule.To) != 2 || rule.To[0].IPBlock.CIDR != "10.0.0.1/32" || rule.To[1].IPBlock.CIDR != "fd00::1/128" {
+		t.Fatalf("each address once, as a host block: %+v", rule.To)
+	}
+	if len(rule.Ports) != 2 || rule.Ports[0].Port.IntVal != 6443 || rule.Ports[1].Port.IntVal != 443 || *rule.Ports[0].Protocol != corev1.ProtocolTCP {
+		t.Fatalf("each port once, TCP: %+v", rule.Ports)
 	}
 }

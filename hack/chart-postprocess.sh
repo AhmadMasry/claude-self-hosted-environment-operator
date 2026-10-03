@@ -5,7 +5,8 @@
 #    policy is lost); both are re-emitted here from dist/install.yaml behind
 #    admissionPolicy.enabled (needs Kubernetes 1.30),
 #  - the runner/orchestrator PodMonitor behind prometheus.enabled,
-#  - the manager flags surfaced as values (and --hook-image), the chart-specific
+#  - the manager flags surfaced as values (and --hook-image,
+#    --apiserver-endpoints), the chart-specific
 #    values, and removal of the plugin's unpinned workflow and install-helm.
 # Idempotent: safe to run on an already post-processed chart.
 set -euo pipefail
@@ -106,6 +107,18 @@ if ! grep -q -- '--hook-image=' "$manager"; then
     }' "$manager" > "$manager.tmp" && mv "$manager.tmp" "$manager"
 fi
 
+# --apiserver-endpoints only when the list is set; empty keeps the
+# default/kubernetes Endpoints read.
+if ! grep -q -- '--apiserver-endpoints=' "$manager"; then
+  awk '
+    { print }
+    /- "--tracing-sample-ratio=/ {
+      print "        {{- with .Values.networkPolicy.apiServerEndpoints }}"
+      print "        - \"--apiserver-endpoints={{ join \",\" . }}\""
+      print "        {{- end }}"
+    }' "$manager" > "$manager.tmp" && mv "$manager.tmp" "$manager"
+fi
+
 # OPERATOR_IMAGE is superseded by --hook-image above; drop the literal the
 # plugin copies from the installer so it cannot drift from manager.image.
 awk '
@@ -118,6 +131,23 @@ awk '
 rm -f .github/workflows/test-chart.yml
 if grep -q '^install-helm:' Makefile; then
   sed -i.bak -e '/^\.PHONY: install-helm$/,/^$/d' -e 's/^helm-deploy: install-helm /helm-deploy: /' Makefile && rm -f Makefile.bak
+fi
+
+# The orchestrator's API server addresses, under the plugin's networkPolicy key.
+if ! grep -q '^  apiServerEndpoints:' "$chart/values.yaml"; then
+  awk '
+    { print }
+    /^networkPolicy:$/ { inblock = 1; next }
+    inblock && /^  enabled: / {
+      print ""
+      print "  ## API server addresses (ip:port, IPv6 bracketed) for the orchestrator egress"
+      print "  ## NetworkPolicy of on-demand environments. Empty reads the default/kubernetes"
+      print "  ## Endpoints, which rbac.namespaced=true does not grant: in that mode this list"
+      print "  ## is required whenever an on-demand environment enables spec.runner.networkPolicy."
+      print "  ## Find the values with: kubectl get endpoints kubernetes -n default"
+      print "  apiServerEndpoints: []"
+      inblock = 0
+    }' "$chart/values.yaml" > "$chart/values.yaml.tmp" && mv "$chart/values.yaml.tmp" "$chart/values.yaml"
 fi
 
 grep -q '^admissionPolicy:' "$chart/values.yaml" || cat >> "$chart/values.yaml" <<'EOV'

@@ -54,8 +54,10 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
    Chart values (`dist/chart/values.yaml`): `manager.image.repository` and `manager.image.tag`,
    `manager.resources`, `rbac.namespaced`, `metrics.secure`, `certManager.enabled`, `prometheus.enabled`
    (ServiceMonitor and PodMonitor), `admissionPolicy.enabled` (default `true`; needs Kubernetes 1.30, set
-   `false` on older clusters), `watchNamespaces`, `tracing.endpoint` and `tracing.sampleRatio`. The hook image
-   (`--hook-image`) always follows `manager.image`.
+   `false` on older clusters), `watchNamespaces`, `tracing.endpoint`, `tracing.sampleRatio` and
+   `networkPolicy.apiServerEndpoints` (API server `ip:port` list for the orchestrator egress policy; required
+   with `rbac.namespaced=true` whenever an on-demand environment enables `spec.runner.networkPolicy`). The
+   hook image (`--hook-image`) always follows `manager.image`.
 
    Or with the installer from a release (it creates and labels the namespace itself):
 
@@ -106,12 +108,13 @@ The list shows Mode, Ready, Replicas and Age. Conditions on `.status.conditions`
   `podTemplate.volumeMounts` may not use `/etc/claude`, `/home/runner` or `/tmp`. `runner.env` may not set
   `SELF_HOSTED_RUNNER_HOST_CONFIG_DIR`, `SELF_HOSTED_RUNNER_CLIENT_LABEL` or
   `SELF_HOSTED_RUNNER_ENVIRONMENT_SECRET` (use `runner.hostConfig`, `settings.clientLabel` and
-  `environmentSecretRef`). `env` and `volumeMounts` take at most 64 entries;
+  `environmentSecretRef`). `env`, `volumeMounts` and `onDemand.orchestrator.env` take at most 64 entries;
   `onDemand.orchestrator.hookTimeoutSeconds` is at least 15. The messages are listed in
   [troubleshooting](TROUBLESHOOTING.md#admission-and-validation-errors).
 - **Manager flags.** `--watch-namespaces` (comma-separated; empty watches all), `--log-level`
   (`debug`, `info`, `error`), `--log-format` (`json`, `text`), `--tracing-endpoint` (OTLP gRPC, default
-  `$OTEL_EXPORTER_OTLP_ENDPOINT`), `--tracing-sample-ratio` (default 0.1), `--hook-image`. The `--zap-*` flags
+  `$OTEL_EXPORTER_OTLP_ENDPOINT`), `--tracing-sample-ratio` (default 0.1), `--hook-image`,
+  `--apiserver-endpoints` (comma-separated `ip:port`; empty reads the `default/kubernetes` Endpoints). The `--zap-*` flags
   are gone.
 
 ## Hardening notes

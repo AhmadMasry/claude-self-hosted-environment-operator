@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -474,6 +475,41 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		Consistently(func() bool {
 			return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: builders.NetworkPolicyName(env), Namespace: ns}, &networkingv1.NetworkPolicy{}))
 		}, 2*time.Second, interval).Should(BeTrue())
+	})
+
+	It("builds the API server policy from configured endpoints without reading default/kubernetes", func() {
+		// A failing Endpoints read proves the configured list is the only source:
+		// with the read attempted, neither policy would ever be applied.
+		envReader.fail.Store(true)
+		DeferCleanup(func() { envReader.fail.Store(false) })
+		envReconciler.SetAPIServerEndpoints([]netip.AddrPort{
+			netip.MustParseAddrPort("192.0.2.10:6443"), netip.MustParseAddrPort("192.0.2.11:443"),
+		})
+		DeferCleanup(func() { envReconciler.SetAPIServerEndpoints(nil) })
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
+		env := onDemandEnvObj(ns)
+		env.Spec.Runner.NetworkPolicy = &selfhostedv1alpha1.NetworkPolicySpec{Enabled: true, EgressCIDRs: []string{testEgressCIDR}}
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+
+		np := &networkingv1.NetworkPolicy{}
+		Eventually(func() error {
+			return k8sClient.Get(ctx, types.NamespacedName{Name: builders.APIServerNetworkPolicyName(env), Namespace: ns}, np)
+		}, timeout, interval).Should(Succeed())
+		Expect(np.Spec.Egress).To(HaveLen(1))
+		cidrs := make([]string, 0, len(np.Spec.Egress[0].To))
+		for _, peer := range np.Spec.Egress[0].To {
+			cidrs = append(cidrs, peer.IPBlock.CIDR)
+		}
+		Expect(cidrs).To(Equal([]string{"192.0.2.10/32", "192.0.2.11/32"}))
+		ports := make([]int32, 0, len(np.Spec.Egress[0].Ports))
+		for _, p := range np.Spec.Egress[0].Ports {
+			ports = append(ports, p.Port.IntVal)
+		}
+		Expect(ports).To(Equal([]int32{6443, 443}))
+		Eventually(func() error {
+			return k8sClient.Get(ctx, types.NamespacedName{Name: builders.NetworkPolicyName(env), Namespace: ns}, &networkingv1.NetworkPolicy{})
+		}, timeout, interval).Should(Succeed())
 	})
 
 	It("reports a NetworkPolicy delete failure as WorkloadApplyFailed", func() {

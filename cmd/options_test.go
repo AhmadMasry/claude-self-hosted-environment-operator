@@ -18,6 +18,9 @@ package main
 
 import (
 	"flag"
+	"net/netip"
+	"slices"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap/zapcore"
@@ -75,5 +78,34 @@ func TestRegisterFlags(t *testing.T) {
 	}
 	if err := fs.Parse([]string{"--log-level=debug"}); err != nil || o.logLevel != "debug" {
 		t.Fatalf("got %q %v", o.logLevel, err)
+	}
+}
+
+func TestParseAPIServerEndpoints(t *testing.T) {
+	if got, err := parseAPIServerEndpoints(""); err != nil || got != nil {
+		t.Fatalf("empty must mean read Endpoints (nil), got %v %v", got, err)
+	}
+	got, err := parseAPIServerEndpoints(" 10.0.0.1:6443, [fd00::1]:443 ,")
+	want := []netip.AddrPort{netip.MustParseAddrPort("10.0.0.1:6443"), netip.MustParseAddrPort("[fd00::1]:443")}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("got %v %v, want %v", got, err, want)
+	}
+	for _, bad := range []string{
+		"10.0.0.1", "10.0.0.1:0", "kubernetes.default:443", "fd00::1:443", "[fe80::1%eth0]:443",
+		"10.0.0.1:6443,999.0.0.1:6443",
+	} {
+		_, err := parseAPIServerEndpoints(bad)
+		if err == nil || !strings.Contains(err.Error(), "--apiserver-endpoints") {
+			t.Fatalf("%q must be rejected with a flag-naming error, got %v", bad, err)
+		}
+	}
+}
+
+func TestRegisterFlagsAPIServerEndpoints(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	o := registerFlags(fs)
+	err := fs.Parse([]string{"--apiserver-endpoints=10.0.0.1:6443"})
+	if err != nil || o.apiServerEndpoints != "10.0.0.1:6443" {
+		t.Fatalf("got %q %v", o.apiServerEndpoints, err)
 	}
 }
