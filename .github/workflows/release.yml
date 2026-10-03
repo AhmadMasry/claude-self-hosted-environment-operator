@@ -3,7 +3,6 @@ name: release
 on:
   push:
     tags: ["v*"]
-    branches: [feat/hardening-release] # TEMP: dispatch is unavailable until the workflow is on master
   workflow_dispatch:
     inputs:
       version:
