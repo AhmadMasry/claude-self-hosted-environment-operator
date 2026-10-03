@@ -34,6 +34,17 @@ import (
 // upgradeNamespace matches the namespace hard-coded in the fixed-fleet testdata.
 const upgradeNamespace = e2eNamespace
 
+const (
+	odOrchestrator = "e2e-od-orchestrator"
+	hookTimeoutEnv = "CLAUDE_OPERATOR_HOOK_TIMEOUT_SECONDS"
+)
+
+func odReady(g Gomega) {
+	out, err := kubectlOD("get", "claudeenvironment", "e2e-od", "-o", `jsonpath={.status.conditions[?(@.type=="Ready")].status}`)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(strings.TrimSpace(out)).To(Equal("True"))
+}
+
 // upgradeSpecs installs the previous revision's installer, creates an
 // environment with it, then applies the current installer and asserts the
 // environment stays valid and becomes Ready under the new manager. Runs
@@ -75,6 +86,20 @@ func upgradeSpecs() {
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(strings.TrimSpace(out)).To(Equal("True"))
 			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("creating an on-demand environment under the previous revision")
+			_, _ = utils.Run(exec.Command("kubectl", "create", "ns", odNamespace))
+			_, err = utils.Run(exec.Command("kubectl", "label", "ns", odNamespace,
+				"pod-security.kubernetes.io/enforce=restricted", "pod-security.kubernetes.io/enforce-version=latest", "--overwrite"))
+			Expect(err).NotTo(HaveOccurred())
+			_, err = kubectlOD("create", "secret", "generic", "claude-env-secret", "--from-literal=environment-secret=ccenvkey_e2e")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = utils.Run(exec.Command("kubectl", "apply", "-f", testdataPath("on-demand-stub.yaml")))
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(odReady, 3*time.Minute, 5*time.Second).Should(Succeed())
+			out, err := kubectlOD("get", "deploy", odOrchestrator, "-o", "jsonpath={.spec.template.spec.containers[0].env[*].name}")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).NotTo(ContainSubstring(hookTimeoutEnv), "the previous revision must not carry the hook timeout variable")
 		})
 
 		AfterAll(func() {
@@ -82,6 +107,8 @@ func upgradeSpecs() {
 				return
 			}
 			_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", upgradeNamespace, "--ignore-not-found", "--wait=true", "--timeout=120s"))
+			// onDemandSpecs recreates this namespace, so it must be gone first.
+			_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", odNamespace, "--ignore-not-found", "--wait=true", "--timeout=120s"))
 		})
 
 		It("applies the current installer over the previous one and keeps the environment Ready", func() {
@@ -119,6 +146,16 @@ func upgradeSpecs() {
 				g.Expect(strings.TrimSpace(out)).To(Equal("True"))
 			}, 60*time.Second, 5*time.Second).Should(Succeed())
 			events, err := utils.Run(exec.Command("kubectl", "get", "events", "-n", upgradeNamespace, "--field-selector=reason=FailedCreate", "-o", "name"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(events)).To(BeEmpty())
+			By("asserting the on-demand orchestrator rolled to a template with the hook timeout variable")
+			Eventually(func(g Gomega) {
+				out, err := kubectlOD("get", "deploy", odOrchestrator, "-o", "jsonpath={.spec.template.spec.containers[0].env[*].name}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(out).To(ContainSubstring(hookTimeoutEnv))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+			Eventually(odReady, 3*time.Minute, 5*time.Second).Should(Succeed())
+			events, err = kubectlOD("get", "events", "--field-selector=reason=FailedCreate", "-o", "name")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(events)).To(BeEmpty())
 			By("asserting the new manager still rejects an invalid environment")

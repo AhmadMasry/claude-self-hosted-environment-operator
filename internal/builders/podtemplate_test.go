@@ -17,11 +17,16 @@ limitations under the License.
 package builders
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/yaml"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 )
@@ -238,5 +243,53 @@ func TestRunnerPodTemplateProbePort(t *testing.T) {
 	c := RunnerPodTemplate(secretInput(testEnv())).Spec.Containers[0]
 	if c.ReadinessProbe.HTTPGet.Port.StrVal != testHealthPortName || c.LivenessProbe.HTTPGet.Port.StrVal != testHealthPortName {
 		t.Fatalf("probes must reference the named health port: %v %v", c.ReadinessProbe.HTTPGet.Port, c.LivenessProbe.HTTPGet.Port)
+	}
+}
+
+// collectRules gathers every x-kubernetes-validations rule below a schema.
+func collectRules(s apiextensionsv1.JSONSchemaProps) []string {
+	var rules []string
+	for _, v := range s.XValidations {
+		rules = append(rules, v.Rule)
+	}
+	for _, p := range s.Properties {
+		rules = append(rules, collectRules(p)...)
+	}
+	if s.Items != nil && s.Items.Schema != nil {
+		rules = append(rules, collectRules(*s.Items.Schema)...)
+	}
+	return rules
+}
+
+// The CEL rules in the CRD hard-code the reserved paths; this keeps them in
+// step with ReservedMountPaths.
+func TestReservedMountPathsMatchCRDRules(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "selfhosted.claudecode.dev_claudeenvironments.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	crd := apiextensionsv1.CustomResourceDefinition{}
+	if err := yaml.Unmarshal(raw, &crd); err != nil {
+		t.Fatal(err)
+	}
+	runner := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"].Properties["runner"]
+	var baseDirRule, mountRule string
+	for _, rule := range collectRules(runner) {
+		switch {
+		case strings.Contains(rule, "baseDir"):
+			baseDirRule = rule
+		case strings.Contains(rule, "volumeMounts"):
+			mountRule = rule
+		}
+	}
+	if baseDirRule == "" || mountRule == "" {
+		t.Fatalf("runner rules not found: baseDir=%q volumeMounts=%q", baseDirRule, mountRule)
+	}
+	for _, p := range ReservedMountPaths {
+		for name, rule := range map[string]string{"baseDir": baseDirRule, "volumeMounts": mountRule} {
+			if !strings.Contains(rule, "'"+p+"'") {
+				t.Errorf("reserved path %s missing from the %s rule: %s", p, name, rule)
+			}
+		}
 	}
 }

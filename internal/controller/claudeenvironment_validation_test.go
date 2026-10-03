@@ -98,6 +98,10 @@ var _ = Describe("ClaudeEnvironment CEL validation", func() {
 		Entry("user env var with an operator-owned name", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Runner.Env = []corev1.EnvVar{{Name: "SELF_HOSTED_RUNNER_HOST_CONFIG_DIR", Value: "/x"}}
 		}, "env may not set operator-owned variables"),
+		Entry("volume with two sources", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Runner.PodTemplate.Volumes = []selfhostedv1alpha1.Volume{{Name: "x",
+				EmptyDir: &corev1.EmptyDirVolumeSource{}, ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "c"}}}}
+		}, "exactly one volume source must be set"),
 		Entry("operator-owned flag in extraArgs", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
 			e.Spec.Runner.ExtraArgs = []string{"--capacity=4"}
 		}, "operator-owned flags"),
@@ -125,6 +129,19 @@ var _ = Describe("ClaudeEnvironment CEL validation", func() {
 			e.Spec.OnDemand = &selfhostedv1alpha1.OnDemandSpec{Orchestrator: selfhostedv1alpha1.OrchestratorSpec{
 				ExpectedSpawnSeconds: 60, HookTimeoutSeconds: 60}}
 		}, "hookTimeoutSeconds + 5 must be below"),
+	)
+
+	DescribeTable("rejects every operator-owned runner env name",
+		func(name string) {
+			env := baseEnv("owned-env")
+			env.Spec.Runner.Env = []corev1.EnvVar{{Name: name, Value: "x"}}
+			err := k8sClient.Create(ctx, env)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("env may not set operator-owned variables"))
+		},
+		Entry(nil, "SELF_HOSTED_RUNNER_HOST_CONFIG_DIR"),
+		Entry(nil, "SELF_HOSTED_RUNNER_CLIENT_LABEL"),
+		Entry(nil, "SELF_HOSTED_RUNNER_ENVIRONMENT_SECRET"),
 	)
 
 	It("rejects forbidden pod fields at the schema level", func() {

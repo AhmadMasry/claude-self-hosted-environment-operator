@@ -34,6 +34,7 @@ import (
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/metrics"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/metrics/metricstest"
 )
 
 func onDemandEnvObj(ns string) *selfhostedv1alpha1.ClaudeEnvironment {
@@ -219,7 +220,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
 		Expect(got.Status.Reason).To(Equal(selfhostedv1alpha1.ReasonWorkOrderMissing))
 		Consistently(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Pod{})) }, 2*time.Second, interval).Should(BeTrue())
-		Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeFailed)).To(Equal(1.0))
+		Expect(metricstest.RunnersTotal(ns, envName, metrics.OutcomeFailed)).To(Equal(1.0))
 	})
 
 	It("waits for a work-order Secret that lands after the ClaudeRunner", func() {
@@ -333,7 +334,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		}, timeout, interval).Should(Equal("order-13"))
 		Expect(runnerPhase(ctx, key)()).To(Equal(selfhostedv1alpha1.RunnerPending))
 		Consistently(eventCount(ctx, ns, "PodCreated"), 2*time.Second, interval).Should(Equal(int32(0)))
-		Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeCreated)).To(Equal(0.0))
+		Expect(metricstest.RunnersTotal(ns, envName, metrics.OutcomeCreated)).To(Equal(0.0))
 	})
 
 	DescribeTable("never adopts a pod with the runner's name that it does not control, and leaves that pod alone",
@@ -356,7 +357,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 			Expect(got.Status.Reason).To(Equal(selfhostedv1alpha1.ReasonPodMismatch))
 			Expect(got.Status.PodName).To(BeEmpty())
 			Expect(eventCount(ctx, ns, selfhostedv1alpha1.ReasonPodMismatch)()).To(Equal(int32(1)))
-			Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeFailed)).To(Equal(1.0))
+			Expect(metricstest.RunnersTotal(ns, envName, metrics.OutcomeFailed)).To(Equal(1.0))
 
 			By("deleting the runner after its TTL without touching the foreign pod")
 			Eventually(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &selfhostedv1alpha1.ClaudeRunner{})) }, 20*time.Second, interval).Should(BeTrue())
@@ -365,7 +366,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 			Expect(pod.UID).To(Equal(foreign.UID))
 			Expect(pod.DeletionTimestamp).To(BeNil())
 			Expect(pod.OwnerReferences).To(BeEmpty())
-			Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeFailed)).To(Equal(1.0))
+			Expect(metricstest.RunnersTotal(ns, envName, metrics.OutcomeFailed)).To(Equal(1.0))
 		},
 		Entry("a pod the manager's cache holds", map[string]string{selfhostedv1alpha1.LabelRole: selfhostedv1alpha1.RoleRunner}),
 		Entry("a pod only the API server knows", nil),
@@ -390,7 +391,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 			Expect(got.Status.Message).To(ContainSubstring("order-17-work-order"))
 			Consistently(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Pod{})) }, 2*time.Second, interval).Should(BeTrue())
 			Expect(eventCount(ctx, ns, selfhostedv1alpha1.ReasonWorkOrderMismatch)()).To(Equal(int32(1)))
-			Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeFailed)).To(Equal(1.0))
+			Expect(metricstest.RunnersTotal(ns, envName, metrics.OutcomeFailed)).To(Equal(1.0))
 		},
 		Entry("labelled for another environment", func(s *corev1.Secret) {
 			s.Labels[selfhostedv1alpha1.LabelEnvironment] = "other-environment"
@@ -439,7 +440,7 @@ var _ = Describe("ClaudeRunner controller", func() {
 		Expect(k8sClient.Create(ctx, r)).To(Succeed())
 		key := client.ObjectKeyFromObject(r)
 		Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerPending))
-		Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeFailed)).To(Equal(0.0))
+		Expect(metricstest.RunnersTotal(ns, envName, metrics.OutcomeFailed)).To(Equal(0.0))
 
 		// The first status update the reconciler sends once the pod is gone
 		// loses to a concurrent write of the runner, a genuine conflict.
@@ -475,8 +476,8 @@ var _ = Describe("ClaudeRunner controller", func() {
 		Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerFailed))
 		Eventually(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Pod{})) }, timeout, interval).Should(BeTrue())
 		Eventually(raced.Load, timeout, interval).Should(BeTrue(), "the race must have run")
-		Consistently(func() float64 { return metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeFailed) }, 3*time.Second, interval).Should(Equal(1.0))
-		Expect(metrics.RunnersTotalForTest(ns, envName, metrics.OutcomeSpawnTimeout)).To(Equal(1.0))
+		Consistently(func() float64 { return metricstest.RunnersTotal(ns, envName, metrics.OutcomeFailed) }, 3*time.Second, interval).Should(Equal(1.0))
+		Expect(metricstest.RunnersTotal(ns, envName, metrics.OutcomeSpawnTimeout)).To(Equal(1.0))
 		got := &selfhostedv1alpha1.ClaudeRunner{}
 		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
 		Expect(got.Status.Reason).To(Equal(selfhostedv1alpha1.ReasonSpawnTimeout))

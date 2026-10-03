@@ -103,6 +103,8 @@ test-e2e-upgrade: setup-test-e2e manifests generate fmt vet ## Run e2e including
 
 .PHONY: cleanup-test-e2e
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
+	@# The metrics spec creates a cluster-scoped binding that namespace deletion does not remove; drop it so a reused cluster starts clean.
+	@kubectl --context kind-$(KIND_CLUSTER) delete clusterrolebinding claude-selfhosted-operator-metrics-binding --ignore-not-found >/dev/null 2>&1 || true
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
 .PHONY: lint

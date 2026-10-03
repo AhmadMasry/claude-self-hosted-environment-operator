@@ -130,18 +130,23 @@ var _ = Describe("ClaudeEnvironment on-demand mode", func() {
 	It("degrades with HookImageUnset when the operator has no hook image", func() {
 		ns := newNamespace(ctx)
 		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
-		envReconciler.SetHookImage("")
 		DeferCleanup(func() { envReconciler.SetHookImage(testHookImage) })
 		env := onDemandEnvObj(ns)
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
 		key := client.ObjectKeyFromObject(env)
-		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionDegraded), timeout, interval).Should(haveReason(metav1.ConditionTrue, selfhostedv1alpha1.ReasonHookImageUnset))
 		got := &selfhostedv1alpha1.ClaudeEnvironment{}
-		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
-		Expect(got.Status.OnDemand).To(BeNil())
-		Consistently(func() bool {
-			return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: orchestratorObjName, Namespace: ns}, &appsv1.Deployment{}))
-		}, 2*time.Second, interval).Should(BeTrue())
+		// Status.OnDemand is populated first, so the nil below is a clearing, not an absence.
+		Eventually(func() *selfhostedv1alpha1.OnDemandStatus {
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			return got.Status.OnDemand
+		}, timeout, interval).ShouldNot(BeNil())
+		envReconciler.SetHookImage("")
+		poke(ctx, key, "unset")
+		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionDegraded), timeout, interval).Should(haveReason(metav1.ConditionTrue, selfhostedv1alpha1.ReasonHookImageUnset))
+		Eventually(func() *selfhostedv1alpha1.OnDemandStatus {
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			return got.Status.OnDemand
+		}, timeout, interval).Should(BeNil())
 	})
 
 	It("warns once per degradation when two hold at the same time", func() {

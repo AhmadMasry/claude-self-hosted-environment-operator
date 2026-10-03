@@ -94,6 +94,13 @@ var _ = BeforeSuite(func() {
 
 	configureKubectlKubeRC()
 	setupCertManager()
+
+	// The metrics spec creates this cluster-scoped binding and namespace
+	// deletion does not remove it; a leftover from an aborted run would make
+	// the spec's create fail with AlreadyExists.
+	By("removing a leftover metrics ClusterRoleBinding")
+	_, err = utils.Run(exec.Command("kubectl", "delete", "clusterrolebinding", metricsRoleBindingName, "--ignore-not-found"))
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 })
 
 var _ = AfterSuite(func() {
