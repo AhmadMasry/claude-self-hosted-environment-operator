@@ -30,9 +30,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# redact masks anything that looks like a JWT or an environment key before a
-# log line reaches a (possibly public) CI log.
-redact() { sed -E 's/eyJ[A-Za-z0-9_-]{20,}(\.[A-Za-z0-9_-]+){0,2}/[REDACTED]/g; s/cc(env|pool)[a-z_]*_[A-Za-z0-9_-]{8,}/[REDACTED]/g'; }
+# redact masks the same shapes as internal/redact (JWTs, Anthropic API keys,
+# environment keys and email addresses) before a log line reaches a
+# (possibly public) CI log.
+redact() {
+  sed -E -e 's/eyJ[A-Za-z0-9_-]{20,}(\.[A-Za-z0-9_-]+){0,2}/[REDACTED]/g' \
+    -e 's/sk-ant-[A-Za-z0-9_-]+/[REDACTED]/g' \
+    -e 's/cc(env|pool)[a-z_]*_[A-Za-z0-9_-]{8,}/[REDACTED]/g' \
+    -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[REDACTED]/g'
+}
 
 # dump_evidence prints what a failed level-2 run needs to be diagnosed: the
 # ClaudeRunner status, the namespace events, the keys the sink holds and the
