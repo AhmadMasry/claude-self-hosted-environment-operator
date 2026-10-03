@@ -2,7 +2,9 @@
 
 Releases are cut by pushing a `vX.Y.Z` tag on `master`. The `release` workflow builds the multi-arch image, signs it, attaches an SBOM attestation, packages the Helm chart and publishes a GitHub Release.
 
-- Image: `ghcr.io/ahmadmasry/claude-self-hosted-environment-operator`, tagged `vX.Y.Z` and `vX.Y`. There is no `latest` tag; consumers pin `vX.Y.Z` or `vX.Y`.
+Only a `vX.Y.Z` tag push publishes. A manual dispatch is always a dry run: the workflow refuses a dispatch with `dry_run=false` and fails before building anything. The version (from the tag, or the `version` input on a dispatch) must be a semantic version, `X.Y.Z` with an optional `-prerelease` or `+build` suffix, or the workflow fails.
+
+- Image: `ghcr.io/ahmadmasry/claude-self-hosted-environment-operator`, tagged `vX.Y.Z`, plus the floating `vX.Y` tag for a plain `X.Y.Z` version only (a prerelease such as `v1.2.0-rc.1` never moves `v1.2`). There is no `latest` tag; consumers pin `vX.Y.Z` or `vX.Y`.
 - Chart: `oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator`, version `X.Y.Z`.
 - Signing: keyless cosign through the GitHub OIDC token; the SBOM (SPDX JSON, from syft) is attached as a cosign attestation and as a release asset.
 

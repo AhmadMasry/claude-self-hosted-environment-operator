@@ -47,12 +47,39 @@ jobs:
           else
             v="${INPUT_VERSION:-0.0.0-dryrun}"; v="${v#v}"
             dry="${INPUT_DRY_RUN:-true}"
+            if [[ "$dry" != "true" ]]; then
+              echo "::error::Only a vX.Y.Z tag push publishes; a manual dispatch must keep dry_run=true (got dry_run=$dry on $GITHUB_REF)"
+              exit 1
+            fi
+          fi
+          semver='^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          if [[ ! "$v" =~ $semver ]]; then
+            echo "::error::Version '$v' is not a semantic version (X.Y.Z[-pre][+build])"
+            exit 1
+          fi
+          floating=false
+          if [[ -z "${BASH_REMATCH[4]}${BASH_REMATCH[5]}" ]]; then
+            floating=true
           fi
           {
             echo "version=$v"
-            echo "major_minor=${v%.*}"
+            echo "major_minor=${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            echo "floating=$floating"
             echo "dry=$dry"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Compose image tags
+        id: tags
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          MAJOR_MINOR: ${{ steps.ver.outputs.major_minor }}
+          FLOATING: ${{ steps.ver.outputs.floating }}
+        run: |
+          tags="$IMAGE:v$VERSION"
+          if [[ "$FLOATING" == "true" ]]; then
+            tags="$tags,$IMAGE:v$MAJOR_MINOR"
+          fi
+          echo "list=$tags" >> "$GITHUB_OUTPUT"
 
       - run: make test
 
@@ -79,31 +106,39 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: ${{ steps.ver.outputs.dry == 'false' }}
-          tags: ${{ env.IMAGE }}:v${{ steps.ver.outputs.version }},${{ env.IMAGE }}:v${{ steps.ver.outputs.major_minor }}
+          tags: ${{ steps.tags.outputs.list }}
           build-args: VERSION=${{ steps.ver.outputs.version }}
           provenance: false
 
       - name: Sign image
         if: steps.ver.outputs.dry == 'false'
-        run: cosign sign --yes ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
 
       - name: SBOM
         run: syft packages dir:. -o spdx-json > sbom.spdx.json
 
       - name: Attest SBOM
         if: steps.ver.outputs.dry == 'false'
-        run: cosign attest --yes --type spdxjson --predicate sbom.spdx.json ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign attest --yes --type spdxjson --predicate sbom.spdx.json "$IMAGE@$DIGEST"
 
       - name: Installer and chart
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          make build-installer IMG=${{ env.IMAGE }}:v${{ steps.ver.outputs.version }}
-          make helm-chart IMG=${{ env.IMAGE }}:v${{ steps.ver.outputs.version }}
-          helm package dist/chart --version ${{ steps.ver.outputs.version }} --app-version ${{ steps.ver.outputs.version }} -d out
+          make build-installer IMG="$IMAGE:v$VERSION"
+          make helm-chart IMG="$IMAGE:v$VERSION"
+          helm package dist/chart --version "$VERSION" --app-version "$VERSION" -d out
           make helm-lint test-chart
 
       - name: Push chart
         if: steps.ver.outputs.dry == 'false'
-        run: helm push out/claude-selfhosted-operator-${{ steps.ver.outputs.version }}.tgz ${{ env.CHART_REPO }}
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: helm push "out/claude-selfhosted-operator-$VERSION.tgz" "$CHART_REPO"
 
       - name: Upload dry-run artifacts
         if: steps.ver.outputs.dry == 'true'
