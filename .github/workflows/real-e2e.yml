@@ -75,6 +75,8 @@ jobs:
         if: failure()
         run: |
           kubectl get claudeenvironments,clauderunners,pods -A -o wide || true
+          kubectl get clauderunners -n claude-real-e2e -o yaml || true
+          kubectl get events -n claude-real-e2e --sort-by=.lastTimestamp || true
           kubectl logs -n claude-selfhosted-operator-system deployment/claude-selfhosted-operator-controller-manager --tail=300 || true
 
       - name: Teardown
