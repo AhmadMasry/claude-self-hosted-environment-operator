@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -170,6 +171,13 @@ type NetworkPolicySpec struct {
 	// +kubebuilder:validation:XValidation:rule="self.all(c, c.matches('^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/([0-9]|[12][0-9]|3[0-2])$'))",message="egressCIDRs must be IPv4 CIDRs"
 	// +optional
 	EgressCIDRs []string `json:"egressCIDRs,omitempty"`
+	// AdditionalEgress is appended to the environment's egress policy as
+	// given, for destinations egressCIDRs cannot express: in-cluster services
+	// selected by pod or namespace, or ports other than 443. An ipBlock that
+	// covers the cloud metadata endpoint gets it excluded, as egressCIDRs do.
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	AdditionalEgress []networkingv1.NetworkPolicyEgressRule `json:"additionalEgress,omitempty"`
 }
 
 // FixedFleetSpec runs a static set of runners.
