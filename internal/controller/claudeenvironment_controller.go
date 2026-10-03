@@ -173,24 +173,32 @@ func (r *ClaudeEnvironmentReconciler) reconcile(ctx context.Context, env *selfho
 		env.Status.Mode = "onDemand"
 		env.Status.Fixed = nil
 		res, err := r.reconcileOnDemand(ctx, env, pass, secret)
-		return r.withNetworkPolicy(ctx, env, res, err)
+		return r.withNetworkPolicy(ctx, env, pass, res, err)
 	}
 	env.Status.Mode = "fixed"
 	env.Status.OnDemand = nil
 	res, err := r.reconcileFixed(ctx, env, pass, secret, configMaps)
-	return r.withNetworkPolicy(ctx, env, res, err)
+	return r.withNetworkPolicy(ctx, env, pass, res, err)
 }
 
 // withNetworkPolicy reconciles the egress policy once the mode branch has
-// succeeded, passing the branch's result through.
-func (r *ClaudeEnvironmentReconciler) withNetworkPolicy(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, res ctrl.Result, err error) (ctrl.Result, error) {
+// succeeded, passing the branch's result through. A failure returns an empty
+// result so the error alone drives the backoff requeue.
+func (r *ClaudeEnvironmentReconciler) withNetworkPolicy(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass, res ctrl.Result, err error) (ctrl.Result, error) {
 	if err != nil {
-		return res, err
+		return ctrl.Result{}, err
 	}
-	return res, r.reconcileNetworkPolicy(ctx, env)
+	if err := r.reconcileNetworkPolicy(ctx, env, pass); err != nil {
+		return ctrl.Result{}, err
+	}
+	return res, nil
 }
 
-func (r *ClaudeEnvironmentReconciler) reconcileNetworkPolicy(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment) error {
+// reconcileNetworkPolicy applies or removes the egress policies. Apply and
+// endpoint-read failures mark the fleet unavailable. In on-demand mode the
+// API server policy is applied before the default-deny policy, so a failure
+// never leaves the orchestrator cut off from the API server.
+func (r *ClaudeEnvironmentReconciler) reconcileNetworkPolicy(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) error {
 	np := env.Spec.Runner.NetworkPolicy
 	egress := builders.EnvironmentNetworkPolicy(env)
 	apiServer := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: builders.APIServerNetworkPolicyName(env), Namespace: env.Namespace}}
@@ -200,22 +208,28 @@ func (r *ClaudeEnvironmentReconciler) reconcileNetworkPolicy(ctx context.Context
 		}
 		return r.deleteIfOwned(ctx, env, apiServer)
 	}
-	if err := r.apply(ctx, env, egress); err != nil {
-		return err
-	}
 	// Only on-demand environments have an orchestrator that needs the API server.
 	if env.Spec.OnDemand == nil {
+		if err := r.apply(ctx, env, egress); err != nil {
+			return r.applyFailed(env, pass, "NetworkPolicy", err)
+		}
 		return r.deleteIfOwned(ctx, env, apiServer)
 	}
 	endpoints := &corev1.Endpoints{} //nolint:staticcheck // the ruled design reads the single default/kubernetes object
 	if err := r.Reader.Get(ctx, types.NamespacedName{Namespace: metav1.NamespaceDefault, Name: "kubernetes"}, endpoints); err != nil {
-		return fmt.Errorf("read API server endpoints: %w", err)
+		return r.applyFailed(env, pass, "NetworkPolicy", fmt.Errorf("read API server endpoints: %w", err))
 	}
 	obj := builders.APIServerNetworkPolicy(env, endpoints)
 	if len(obj.Spec.Egress[0].To) == 0 || len(obj.Spec.Egress[0].Ports) == 0 {
-		return fmt.Errorf("read API server endpoints: default/kubernetes lists no addresses or ports")
+		return r.applyFailed(env, pass, "NetworkPolicy", fmt.Errorf("read API server endpoints: default/kubernetes lists no addresses or ports"))
 	}
-	return r.apply(ctx, env, obj)
+	if err := r.apply(ctx, env, obj); err != nil {
+		return r.applyFailed(env, pass, "NetworkPolicy", err)
+	}
+	if err := r.apply(ctx, env, egress); err != nil {
+		return r.applyFailed(env, pass, "NetworkPolicy", err)
+	}
+	return nil
 }
 
 func (r *ClaudeEnvironmentReconciler) resolveSecret(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) (*corev1.Secret, bool, error) {
@@ -513,7 +527,10 @@ func (r *ClaudeEnvironmentReconciler) deleteOrchestratorObjects(ctx context.Cont
 // API error only: the workload objects reference the Secret by name and never
 // hold its value.
 func (r *ClaudeEnvironmentReconciler) applyFailed(env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass, kind string, err error) error {
-	msg := fmt.Sprintf("could not apply %s (%s): %s", kind, apierrors.ReasonForError(err), err.Error())
+	msg := fmt.Sprintf("could not apply %s: %s", kind, err.Error())
+	if reason := apierrors.ReasonForError(err); reason != metav1.StatusReasonUnknown {
+		msg = fmt.Sprintf("could not apply %s (%s): %s", kind, reason, err.Error())
+	}
 	pass.set(selfhostedv1alpha1.ConditionFleetAvailable, metav1.ConditionFalse, selfhostedv1alpha1.ReasonWorkloadApplyFailed, msg)
 	r.Recorder.Event(env, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonWorkloadApplyFailed, msg)
 	return err

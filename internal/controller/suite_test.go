@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +29,8 @@ import (
 	. "github.com/onsi/gomega"
 
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -85,6 +88,22 @@ func (c *testClock) Shift(d time.Duration) {
 
 var clock = &testClock{}
 
+// endpointsReader wraps the environment reconciler's uncached reader so a
+// spec can make the default/kubernetes Endpoints read fail.
+type endpointsReader struct {
+	client.Reader
+	fail atomic.Bool
+}
+
+func (r *endpointsReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(*corev1.Endpoints); ok && r.fail.Load() { //nolint:staticcheck // mirrors the controller read
+		return apierrors.NewServiceUnavailable("injected endpoints failure")
+	}
+	return r.Reader.Get(ctx, key, obj, opts...)
+}
+
+var envReader *endpointsReader
+
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 	telemetry.InstallExporter(spanExporter)
@@ -125,8 +144,9 @@ var _ = BeforeSuite(func() {
 		Metrics: metricsserver.Options{BindAddress: "0"},
 	})
 	Expect(err).NotTo(HaveOccurred())
+	envReader = &endpointsReader{Reader: k8sManager.GetAPIReader()}
 	envReconciler = &ClaudeEnvironmentReconciler{
-		Client: k8sManager.GetClient(), Reader: k8sManager.GetAPIReader(), Scheme: k8sManager.GetScheme(), Clock: clock.Now, HookImage: testHookImage,
+		Client: k8sManager.GetClient(), Reader: envReader, Scheme: k8sManager.GetScheme(), Clock: clock.Now, HookImage: testHookImage,
 		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
 		Recorder: k8sManager.GetEventRecorderFor("claude-selfhosted-operator-test"),
 	}

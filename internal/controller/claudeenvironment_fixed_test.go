@@ -454,6 +454,28 @@ var _ = Describe("ClaudeEnvironment fixed mode", func() {
 		}
 	})
 
+	It("reports an API server endpoints failure as WorkloadApplyFailed and never applies the default-deny policy", func() {
+		envReader.fail.Store(true)
+		DeferCleanup(func() { envReader.fail.Store(false) })
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
+		env := onDemandEnvObj(ns)
+		env.Spec.Runner.NetworkPolicy = &selfhostedv1alpha1.NetworkPolicySpec{Enabled: true, EgressCIDRs: []string{testEgressCIDR}}
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		key := client.ObjectKeyFromObject(env)
+
+		Eventually(func(g Gomega) {
+			c, err := condition(ctx, key, selfhostedv1alpha1.ConditionFleetAvailable)()
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(c.Status).To(Equal(metav1.ConditionFalse))
+			g.Expect(c.Reason).To(Equal(selfhostedv1alpha1.ReasonWorkloadApplyFailed))
+			g.Expect(c.Message).To(ContainSubstring("injected endpoints failure"))
+		}, timeout, interval).Should(Succeed())
+		Consistently(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: builders.NetworkPolicyName(env), Namespace: ns}, &networkingv1.NetworkPolicy{}))
+		}, 2*time.Second, interval).Should(BeTrue())
+	})
+
 	It("marks the environment Degraded when runner pods keep failing at start", func() {
 		ns := newNamespace(ctx)
 		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
