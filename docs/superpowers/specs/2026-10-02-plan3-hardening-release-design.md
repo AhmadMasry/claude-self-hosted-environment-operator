@@ -185,6 +185,20 @@ in `config/admission/` and the chart, toggle `admissionPolicy.enabled`
 - An e2e spec creates a Secret named `evil` with the orchestrator
   ServiceAccount's token (`kubectl --as`) and expects a denial.
 
+As built (Plan 3 execution): two policies, `orchestrator-secrets` and
+`orchestrator-runners`. Both match only a username
+`system:serviceaccount:<request.namespace>:<env>-orchestrator` that the
+authorizer allows to `get` `claudeenvironments/<env>` in that namespace (the
+operator's orchestrator Role grants exactly that), so third-party
+`*-orchestrator` accounts are untouched. Secrets: operations CREATE, UPDATE,
+DELETE (PATCH is not an admission operation; patches arrive as UPDATE); the
+name must end in `-work-order` and the label
+`selfhosted.claudecode.dev/environment` must equal `<env>` on `object`
+(CREATE, UPDATE) and `oldObject` (UPDATE, DELETE). ClaudeRunners (CREATE):
+controller owner ClaudeEnvironment `<env>` with apiVersion
+`selfhosted.claudecode.dev/v1alpha1`, `spec.environmentRef.name == <env>`,
+`spec.workOrderSecretRef.name == metadata.name + '-work-order'`.
+
 ### 3.3 NetworkPolicy
 
 As base spec section 7, behind `spec.runner.networkPolicy.enabled`
@@ -196,6 +210,15 @@ orchestrator), `policyTypes: [Egress]`, allow UDP and TCP 53 to pods in
 `169.254.169.254/32` on every CIDR block. Builder plus unit tests; e2e
 asserts the object shape only (kind's default CNI does not enforce
 policies).
+
+As built (Plan 3 execution): the policy is `<env>-egress`; the metadata
+`except` is added only to CIDRs that contain `169.254.169.254` (the API
+server rejects an `except` outside its block). `egressCIDRs` are IPv4 only
+(CEL), at most 64. A second policy, `<env>-egress-apiserver`, exists in
+on-demand mode for the orchestrator pods: TCP to each address and port of
+the `default/kubernetes` Endpoints, read through the uncached reader on every
+reconcile (no watch), so a control-plane IP change is picked up on the next
+reconcile. The manager needs `get` on that one Endpoints object.
 
 ### 3.4 Orphaned work-order sweep
 
@@ -289,6 +312,15 @@ by the CI job, acting as a user, to create a session routed to
   stored as `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` and renewed every 30 days
   (the product caps the refresh grant at 30 days; minting steps in the
   doc).
+
+As built (Plan 3 execution): the CLI has no repository flag, so the session
+is routed by running `claude` in a checkout whose `origin` remote is the
+target repository (`--environment` and `--ref` only); `TEST_REPO` makes the
+script shallow-clone that public repository anonymously. The Stop hook reaches
+the runner through `spec.runner.hostConfig` and reads `last_assistant_message`
+and `CLAUDE_CODE_REMOTE_SESSION_ID` (`cse_` rewritten to `session_`). The
+schedule is not present in the workflow file; it stays manual. The runner
+image is built in the job and never pushed. See `docs/testing.md`.
 
 ### 5.2 Upgrade test
 

@@ -504,7 +504,7 @@ The whole run is bounded by a context deadline below the orchestrator's
 
 Conditions as in section 5 with `observedGeneration`. Normal events for
 child creation and rollouts; Warning events for `SecretMissing`,
-`SpawnCapReached`, `RunnerFailed`, `GracePeriodTooShort`.
+`SpawnCapReached`, `PodFailed` (named `RunnerFailed` before Plan 3), `GracePeriodTooShort`.
 
 ### 8.2 Metrics
 
