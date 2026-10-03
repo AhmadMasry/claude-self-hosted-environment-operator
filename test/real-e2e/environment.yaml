@@ -15,6 +15,11 @@ spec:
       killSessionAfterMinutes: 5
     hostConfig:
       name: real-host-config
+    lifecycleHooks:
+      name: real-lifecycle-hooks
+    wrapperScript:
+      name: real-wrapper
+      key: wrapper.sh
     env:
       - name: E2E_REPLY_URL
         value: http://replysink.${NAMESPACE}.svc:8080
