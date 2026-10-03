@@ -296,6 +296,21 @@ func workOrderBelongs(secret *corev1.Secret, env *selfhostedv1alpha1.ClaudeEnvir
 	return (owner.Kind == "ClaudeEnvironment" && owner.UID == env.UID) || (owner.Kind == "ClaudeRunner" && owner.UID == runner.UID)
 }
 
+// hostConfigKeys reads the hostConfig ConfigMap so its keys can be mounted
+// as plain files. The ClaudeEnvironment reconciler already reports a missing
+// ConfigMap as Degraded; here it is an error that requeues the runner.
+func (r *ClaudeRunnerReconciler) hostConfigKeys(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment) ([]string, error) {
+	hc := env.Spec.Runner.HostConfig
+	if hc == nil {
+		return nil, nil
+	}
+	cm := &corev1.ConfigMap{}
+	if err := r.Get(ctx, types.NamespacedName{Name: hc.Name, Namespace: env.Namespace}, cm); err != nil {
+		return nil, fmt.Errorf("host config ConfigMap %q: %w", hc.Name, err)
+	}
+	return builders.HostConfigKeys(env, []*corev1.ConfigMap{cm}), nil
+}
+
 // createPod creates the runner pod. It runs only while Status.PodName is
 // empty, so a pod that later disappears is never started a second time.
 // Pods are immutable, so an existing pod is used as is rather than re-applied,
@@ -311,7 +326,11 @@ func (r *ClaudeRunnerReconciler) createPod(ctx context.Context, env *selfhostedv
 	if !apierrors.IsNotFound(err) {
 		return nil, err
 	}
-	pod = builders.OnDemandRunnerPod(env, runner, builders.ConfigHash(env, nil, nil))
+	hostConfigKeys, err := r.hostConfigKeys(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	pod = builders.OnDemandRunnerPod(env, runner, builders.ConfigHash(env, nil, nil), hostConfigKeys)
 	if err := controllerutil.SetControllerReference(runner, pod, r.Scheme); err != nil {
 		return nil, err
 	}

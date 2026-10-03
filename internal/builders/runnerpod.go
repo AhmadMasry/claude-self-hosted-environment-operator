@@ -39,18 +39,19 @@ func WorkOrderSecretVolume(secretName string) corev1.VolumeSource {
 }
 
 // OnDemandRunnerPod builds the single-session pod for a ClaudeRunner. The
-// caller sets the owner reference.
-func OnDemandRunnerPod(env *selfhostedv1alpha1.ClaudeEnvironment, runner *selfhostedv1alpha1.ClaudeRunner, hash string) *corev1.Pod {
+// caller sets the owner reference. hostConfigKeys come from HostConfigKeys.
+func OnDemandRunnerPod(env *selfhostedv1alpha1.ClaudeEnvironment, runner *selfhostedv1alpha1.ClaudeRunner, hash string, hostConfigKeys []string) *corev1.Pod {
 	// A session-bound work order registers exactly one runner; extra slots never receive work.
 	single := env.DeepCopy()
 	single.Spec.Runner.Capacity = 1
 
 	tmpl := RunnerPodTemplate(RunnerPodInput{
-		Env:           single,
-		ConfigHash:    hash,
-		SecretVolume:  WorkOrderSecretVolume(runner.Spec.WorkOrderSecretRef.Name),
-		SecretFile:    SecretMountPath + "/" + SecretFileName,
-		RestartPolicy: corev1.RestartPolicyNever,
+		Env:            single,
+		ConfigHash:     hash,
+		SecretVolume:   WorkOrderSecretVolume(runner.Spec.WorkOrderSecretRef.Name),
+		SecretFile:     SecretMountPath + "/" + SecretFileName,
+		RestartPolicy:  corev1.RestartPolicyNever,
+		HostConfigKeys: hostConfigKeys,
 	})
 	tmpl.Labels[selfhostedv1alpha1.LabelOrderID] = selfhostedv1alpha1.LabelValue(runner.Spec.OrderID)
 	if runner.Spec.SessionID != "" {

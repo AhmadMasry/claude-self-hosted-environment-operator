@@ -2,8 +2,10 @@ name: real-e2e
 
 # Manual real-environment test (docs/testing.md). Level 1 needs the
 # CLAUDE_ENVIRONMENT_KEY and CLAUDE_ENVIRONMENT_ID secrets; level 2 also needs
-# CLAUDE_CODE_OAUTH_REFRESH_TOKEN and CLAUDE_CODE_OAUTH_SCOPES and is skipped
-# without them. The runner image is built here and never pushed.
+# CLAUDE_CODE_OAUTH_REFRESH_TOKEN, CLAUDE_CODE_OAUTH_SCOPES and
+# REAL_E2E_SECRETS_PAT and is skipped without the refresh token. Run one
+# real-e2e at a time: each run rotates the refresh token. The runner image is
+# built here and never pushed.
 on:
   workflow_dispatch:
     inputs:
@@ -61,12 +63,26 @@ jobs:
           curl -fsSL https://claude.ai/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      # The exchange retires the stored refresh token and issues a new one, so
+      # the new one is written back before anything else runs. The test step
+      # then finds the stored login and never sees the refresh token.
+      - name: Log in for level 2 and store the rotated refresh token
+        env:
+          CLAUDE_CODE_OAUTH_REFRESH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_REFRESH_TOKEN }}
+          CLAUDE_CODE_OAUTH_SCOPES: ${{ secrets.CLAUDE_CODE_OAUTH_SCOPES }}
+          GH_TOKEN: ${{ secrets.REAL_E2E_SECRETS_PAT }}
+        run: |
+          [ -n "$CLAUDE_CODE_OAUTH_REFRESH_TOKEN" ] || { echo "No CLAUDE_CODE_OAUTH_REFRESH_TOKEN: level 2 is skipped"; exit 0; }
+          [ -n "$CLAUDE_CODE_OAUTH_SCOPES" ] || { echo "::error::Secret CLAUDE_CODE_OAUTH_SCOPES is required with CLAUDE_CODE_OAUTH_REFRESH_TOKEN"; exit 1; }
+          [ -n "$GH_TOKEN" ] || { echo "::error::Secret REAL_E2E_SECRETS_PAT is required with CLAUDE_CODE_OAUTH_REFRESH_TOKEN: the exchange rotates the token"; exit 1; }
+          claude auth login >/dev/null
+          jq -r '.claudeAiOauth.refreshToken' "$HOME/.claude/.credentials.json" | gh secret set CLAUDE_CODE_OAUTH_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY"
+          echo "Logged in and stored the rotated refresh token"
+
       - name: Run the real-environment test
         env:
           CLAUDE_ENVIRONMENT_KEY: ${{ secrets.CLAUDE_ENVIRONMENT_KEY }}
           CLAUDE_ENVIRONMENT_ID: ${{ secrets.CLAUDE_ENVIRONMENT_ID }}
-          CLAUDE_CODE_OAUTH_REFRESH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_REFRESH_TOKEN }}
-          CLAUDE_CODE_OAUTH_SCOPES: ${{ secrets.CLAUDE_CODE_OAUTH_SCOPES }}
           TEST_REPO: ${{ inputs.test_repo }}
           TEST_REF: ${{ inputs.ref }}
         run: make real-session-test IMG=example.com/claude-selfhosted-operator:real-e2e
@@ -75,6 +91,8 @@ jobs:
         if: failure()
         run: |
           kubectl get claudeenvironments,clauderunners,pods -A -o wide || true
+          kubectl get clauderunners -n claude-real-e2e -o yaml || true
+          kubectl get events -n claude-real-e2e --sort-by=.lastTimestamp || true
           kubectl logs -n claude-selfhosted-operator-system deployment/claude-selfhosted-operator-controller-manager --tail=300 || true
 
       - name: Teardown

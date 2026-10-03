@@ -19,6 +19,7 @@ package builders
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -56,6 +57,8 @@ const (
 	testBaseDir        = "/workspace"
 	testCacheName      = "cache"
 	testHealthPortName = "health"
+	testHostConfigName = "cfg"
+	testSettingsKey    = "settings.json"
 )
 
 func TestRunnerPodTemplateRestricted(t *testing.T) {
@@ -86,7 +89,7 @@ func TestRunnerPodTemplateRestricted(t *testing.T) {
 			t.Fatalf("label %s missing", k)
 		}
 	}
-	wantMounts := map[string]string{testSecretKey: "/etc/claude", "workspace": testBaseDir, "home": "/home/runner", "tmp": "/tmp"}
+	wantMounts := map[string]string{testSecretKey: testSecretFile, "workspace": testBaseDir, "home": "/home/runner", "tmp": "/tmp"}
 	for _, m := range c.VolumeMounts {
 		if p, ok := wantMounts[m.Name]; ok && m.MountPath == p {
 			delete(wantMounts, m.Name)
@@ -128,15 +131,32 @@ func TestRunnerPodTemplateOptionalMounts(t *testing.T) {
 	env := testEnv()
 	env.Spec.Runner.LifecycleHooks = &selfhostedv1alpha1.ConfigMapRef{Name: "hooks"}
 	env.Spec.Runner.WrapperScript = &selfhostedv1alpha1.ConfigMapKeyRef{Name: "wrap", Key: "w.sh"}
-	env.Spec.Runner.HostConfig = &selfhostedv1alpha1.ConfigMapRef{Name: "cfg"}
-	tmpl := RunnerPodTemplate(secretInput(env))
+	env.Spec.Runner.HostConfig = &selfhostedv1alpha1.ConfigMapRef{Name: testHostConfigName}
+	in := secretInput(env)
+	in.HostConfigKeys = []string{testSettingsKey, "capture-reply.sh"}
+	tmpl := RunnerPodTemplate(in)
 	c := tmpl.Spec.Containers[0]
 	byName := map[string]corev1.Volume{}
 	for _, v := range tmpl.Spec.Volumes {
 		byName[v.Name] = v
 	}
-	if *byName["hooks"].ConfigMap.DefaultMode != 0o555 || *byName["wrapper"].ConfigMap.DefaultMode != 0o555 || *byName["host-config"].ConfigMap.DefaultMode != 0o444 {
+	if *byName["hooks"].ConfigMap.DefaultMode != 0o555 || *byName["wrapper"].ConfigMap.DefaultMode != 0o555 || *byName[volHostConfig].ConfigMap.DefaultMode != 0o444 {
 		t.Fatal("hooks/wrapper must be 0555 and host-config 0444")
+	}
+	// Each host-config key is a plain file at its own path: a directory mount
+	// would expose symlinks the runner's snapshot leaves out.
+	var hostCfg []corev1.VolumeMount
+	for _, m := range c.VolumeMounts {
+		if m.Name == volHostConfig {
+			hostCfg = append(hostCfg, m)
+		}
+	}
+	want := []corev1.VolumeMount{
+		{Name: volHostConfig, MountPath: HostConfigMountPath + "/capture-reply.sh", SubPath: "capture-reply.sh", ReadOnly: true},
+		{Name: volHostConfig, MountPath: HostConfigMountPath + "/" + testSettingsKey, SubPath: testSettingsKey, ReadOnly: true},
+	}
+	if !reflect.DeepEqual(hostCfg, want) {
+		t.Fatalf("host-config mounts = %+v, want sorted subPath mounts %+v", hostCfg, want)
 	}
 	var sawHostCfg bool
 	for _, e := range c.Env {
@@ -148,9 +168,59 @@ func TestRunnerPodTemplateOptionalMounts(t *testing.T) {
 		t.Fatal("SELF_HOSTED_RUNNER_HOST_CONFIG_DIR not set")
 	}
 	for _, m := range c.VolumeMounts {
-		if (m.Name == "hooks" || m.Name == "wrapper" || m.Name == "host-config") && !m.ReadOnly {
+		if (m.Name == "hooks" || m.Name == "wrapper" || m.Name == volHostConfig) && !m.ReadOnly {
 			t.Fatalf("%s must be read-only", m.Name)
 		}
+	}
+}
+
+func TestRunnerPodTemplateMountsTheSecretAsAFile(t *testing.T) {
+	// A directory mount on /etc/claude would make the kubelet pre-create the
+	// nested host-config file mount points as directories.
+	tmpl := RunnerPodTemplate(secretInput(testEnv()))
+	var secret *corev1.VolumeMount
+	for i, m := range tmpl.Spec.Containers[0].VolumeMounts {
+		if m.Name == volEnvironmentSecret {
+			secret = &tmpl.Spec.Containers[0].VolumeMounts[i]
+		}
+	}
+	want := corev1.VolumeMount{Name: volEnvironmentSecret, MountPath: SecretMountPath + "/" + SecretFileName, SubPath: SecretFileName, ReadOnly: true}
+	if secret == nil || !reflect.DeepEqual(*secret, want) {
+		t.Fatalf("secret mount = %+v, want %+v", secret, want)
+	}
+}
+
+func TestRunnerPodTemplateHostConfigWithoutKeysMountsTheDirectory(t *testing.T) {
+	env := testEnv()
+	env.Spec.Runner.HostConfig = &selfhostedv1alpha1.ConfigMapRef{Name: testHostConfigName}
+	tmpl := RunnerPodTemplate(secretInput(env))
+	var hostCfg []corev1.VolumeMount
+	for _, m := range tmpl.Spec.Containers[0].VolumeMounts {
+		if m.Name == volHostConfig {
+			hostCfg = append(hostCfg, m)
+		}
+	}
+	want := []corev1.VolumeMount{{Name: volHostConfig, MountPath: HostConfigMountPath, ReadOnly: true}}
+	if !reflect.DeepEqual(hostCfg, want) {
+		t.Fatalf("host-config mounts = %+v, want the directory mount %+v", hostCfg, want)
+	}
+}
+
+func TestHostConfigKeys(t *testing.T) {
+	env := testEnv()
+	cfg := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: testHostConfigName},
+		Data: map[string]string{testSettingsKey: "{}", "b.sh": ""}, BinaryData: map[string][]byte{"a.bin": {1}}}
+	other := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "other"}, Data: map[string]string{"x": ""}}
+	if got := HostConfigKeys(env, []*corev1.ConfigMap{cfg}); got != nil {
+		t.Fatalf("no hostConfig: got %v, want nil", got)
+	}
+	env.Spec.Runner.HostConfig = &selfhostedv1alpha1.ConfigMapRef{Name: testHostConfigName}
+	if got := HostConfigKeys(env, []*corev1.ConfigMap{other, nil}); got != nil {
+		t.Fatalf("ConfigMap not in the list: got %v, want nil", got)
+	}
+	got := HostConfigKeys(env, []*corev1.ConfigMap{other, nil, cfg})
+	if want := []string{"a.bin", "b.sh", testSettingsKey}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("keys = %v, want %v", got, want)
 	}
 }
 

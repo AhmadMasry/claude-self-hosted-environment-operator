@@ -82,6 +82,13 @@ into each session's config directory. The mount is not executable, so `settings.
 `test/real-e2e/capture-reply.sh` is a copy of the embedded script kept for `shellcheck`; keep the two
 identical.
 
+When level 2 fails, the script prints redacted evidence to stderr: the `ClaudeRunner` objects, the
+namespace events, the sink's request log, the runner pod's log (streamed from the moment the pod appears,
+because the pod is garbage-collected soon after the session ends) and, read through `kubectl exec` while the
+pod ran, the host-config mount, each session's seeded config directory under `/workspace/_sessions` with its
+`settings.json`, and the hook's trace. The hook appends that trace to `/tmp/capture-reply.log` in the pod:
+whether it ran, which session id and sink URL it saw, the keys of its input and curl's result.
+
 ### Prerequisites
 
 - A self-hosted environment in a Team or Enterprise organization with **Allow self-hosted environments**
@@ -99,6 +106,12 @@ identical.
     `claude auth login` exchanges it directly instead of opening a browser.
   - `CLAUDE_CODE_OAUTH_SCOPES`: the space-separated scopes the token was issued with, for example
     `user:profile user:inference user:sessions:claude_code`. Required with the refresh token.
+  - `REAL_E2E_SECRETS_PAT`: a fine-grained personal access token for this repository with the Secrets
+    permission set to read and write, and nothing else. Each exchange of the refresh token retires it and
+    issues a new one (verified on 2026-10-03: a second exchange of the same token fails with HTTP 400), so
+    the workflow's login step stores the new token back into `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` before the
+    test runs. The step refuses to log in when this secret is missing, so a misconfigured run cannot retire
+    the stored token. Run one `real-e2e` at a time.
 
 #### Minting the refresh token
 
@@ -110,12 +123,19 @@ and [environment variables](https://code.claude.com/docs/en/env-vars)):
 - `claude setup-token` does not work for this: it mints a one-year inference-only token, and the scope that
   grants cloud-session control, `user:sessions:claude_code`, is capped server-side at 30 days.
 - Use a dedicated automation account. Run `claude auth login` with it interactively; on Linux the login is
-  stored in `~/.claude/.credentials.json`, on macOS in the Keychain.
-- Provide that login's refresh token and scopes to CI as `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` and
-  `CLAUDE_CODE_OAUTH_SCOPES`. Where the refresh token is read from in the stored login is not documented.
-- The refresh grant is capped at 30 days from the initial login: log in again and replace both secrets
-  every 30 days. Anthropic's docs say to contact your account team for a machine identity that is not bound
-  to a human account.
+  stored in `~/.claude/.credentials.json`, on macOS in the Keychain, where the refresh token cannot be read
+  out. On a Mac, log in inside a throwaway Linux container with a private state directory mounted at
+  `/root/.claude` (Debian plus `curl -fsSL https://claude.ai/install.sh | bash` is enough); the file then
+  appears in that directory. Keep the directory private (mode 700) and do not put it under `/tmp`.
+- The file holds `claudeAiOauth.refreshToken`, `claudeAiOauth.scopes` and `claudeAiOauth.refreshTokenExpiresAt`.
+  Store the token and the scopes (joined with spaces) as `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` and
+  `CLAUDE_CODE_OAUTH_SCOPES` by piping them into `gh secret set`, so they never appear on screen.
+- The token rotates on every exchange (see `REAL_E2E_SECRETS_PAT` above). After the first CI run the secret
+  is newer than your local file, so a later manual renewal starts from a fresh interactive login, not from
+  the file.
+- The refresh grant is capped at 30 days from the initial login, whatever the rotation: log in again and
+  replace both secrets before then. Anthropic's docs say to contact your account team for a machine identity
+  that is not bound to a human account.
 
 ### Running it from GitHub Actions
 

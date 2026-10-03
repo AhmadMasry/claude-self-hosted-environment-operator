@@ -19,12 +19,72 @@ TEST_REF=${TEST_REF:-}
 export NAMESPACE RUNNER_IMAGE
 workdir=$PWD
 pf=
+runner_log_pid=
+runner_log=
+pod_evidence_pid=
+pod_evidence=
 cleanup() {
   [ -z "$pf" ] || kill "$pf" 2>/dev/null || true
+  [ -z "$runner_log_pid" ] || kill "$runner_log_pid" 2>/dev/null || true
+  [ -z "$pod_evidence_pid" ] || kill "$pod_evidence_pid" 2>/dev/null || true
   [ -z "${pf_log:-}" ] || rm -f "$pf_log"
+  [ -z "$runner_log" ] || rm -f "$runner_log"
+  [ -z "$pod_evidence" ] || rm -f "$pod_evidence"
   [ "$workdir" = "$PWD" ] || rm -rf "$workdir"
 }
 trap cleanup EXIT
+
+# redact masks the same shapes as internal/redact (JWTs, Anthropic API keys,
+# environment keys and email addresses) before a log line reaches a
+# (possibly public) CI log.
+redact() {
+  sed -E -e 's/eyJ[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){1,2}|eyJ[A-Za-z0-9_-]{20,}/[REDACTED]/g' \
+    -e 's/sk-ant-[A-Za-z0-9_-]+/[REDACTED]/g' \
+    -e 's/cc(env|pool)[a-z_]*_[A-Za-z0-9_-]{8,}/[REDACTED]/g' \
+    -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[REDACTED]/g'
+}
+
+# dump_evidence prints what a failed level-2 run needs to be diagnosed: the
+# ClaudeRunner status, the namespace events, the requests the sink saw, the
+# runner pod log captured while it ran (the pod is garbage-collected soon
+# after it finishes, so it is streamed from the moment it appears) and what
+# the session saw inside the pod: the seeded config directory and the Stop
+# hook's trace.
+dump_evidence() {
+  echo "---- ClaudeRunners ($NAMESPACE)" >&2
+  kubectl get -n "$NAMESPACE" clauderunners -o yaml 2>&1 | grep -vE 'resourceVersion|managedFields|uid:' | redact >&2 || true
+  echo "---- events ($NAMESPACE)" >&2
+  kubectl get events -n "$NAMESPACE" --sort-by=.lastTimestamp 2>&1 | tail -40 | redact >&2 || true
+  echo "---- reply sink log" >&2
+  kubectl logs -n "$NAMESPACE" deployment/replysink --tail=50 2>&1 | redact >&2 || true
+  if [ -n "$runner_log" ] && [ -s "$runner_log" ]; then
+    echo "---- runner pod log (redacted, last 200 lines)" >&2
+    tail -n 200 "$runner_log" | redact >&2
+  else
+    echo "---- runner pod log: not captured" >&2
+  fi
+  if [ -n "$pod_evidence" ] && [ -s "$pod_evidence" ]; then
+    echo "---- inside the runner pod: host config, seeded session config, hook trace (redacted)" >&2
+    redact <"$pod_evidence" >&2
+  else
+    echo "---- inside the runner pod: not captured" >&2
+  fi
+}
+
+# pod_evidence_script runs inside the runner pod: the host-config mount as
+# the runner sees it, each session's seeded config directory under the
+# default baseDir (/workspace) with its settings.json, and the Stop hook's
+# trace. No secret is printed: names, the hook settings and curl's messages.
+# shellcheck disable=SC2016 # the script expands inside the pod
+pod_evidence_script='
+echo "== /etc/claude/host-config"; ls -la /etc/claude/host-config; ls -laL /etc/claude/host-config
+for d in /workspace/_sessions/*.claude-config; do
+  [ -d "$d" ] || continue
+  echo "== $d"; ls -la "$d"; echo "-- settings.json"; cat "$d/settings.json" 2>&1
+done
+echo "== /tmp/capture-reply.log"; cat /tmp/capture-reply.log 2>&1
+exit 0
+'
 
 # claude_ai_login succeeds when `claude auth status` (JSON by default) reports
 # a logged-in claude.ai account; an API-key login cannot start a session.
@@ -96,7 +156,28 @@ for _ in $(seq 1 60); do
   sleep 5
 done
 echo "runner phase: ${phase:-none}"
-[ -n "$phase" ] || { echo "no ClaudeRunner appeared for session $session_id within 300s" >&2; exit 1; }
+[ -n "$phase" ] || { echo "no ClaudeRunner appeared for session $session_id within 300s" >&2; dump_evidence; exit 1; }
+# Stream the runner pod's log from now on; it is only printed, redacted, if
+# the run fails.
+runner_pod=$(kubectl get -n "$NAMESPACE" clauderunners -l selfhosted.claudecode.dev/environment=real -o jsonpath='{.items[0].status.podName}' 2>/dev/null || true)
+if [ -n "$runner_pod" ]; then
+  runner_log=$(mktemp)
+  kubectl logs -n "$NAMESPACE" -f "$runner_pod" --all-containers >"$runner_log" 2>&1 &
+  runner_log_pid=$!
+  # The session's config directory appears only once the session starts and
+  # the pod is gone soon after it ends, so poll while the pod runs and keep
+  # the latest successful snapshot.
+  pod_evidence=$(mktemp)
+  (
+    for _ in $(seq 1 60); do
+      if out=$(kubectl exec -n "$NAMESPACE" "$runner_pod" -- sh -c "$pod_evidence_script" 2>&1); then
+        printf '%s\n' "$out" >"$pod_evidence"
+      fi
+      sleep 5
+    done
+  ) &
+  pod_evidence_pid=$!
+fi
 
 echo "== level 2: reply captured"
 reply=
@@ -104,10 +185,10 @@ for _ in $(seq 1 60); do
   if reply=$(curl -sf "http://127.0.0.1:18080/$session_id"); then break; fi
   sleep 5
 done
-[ -n "$reply" ] || { echo "no reply for $session_id in the sink" >&2; cat "$pf_log" >&2; exit 1; }
+[ -n "$reply" ] || { echo "no reply for $session_id in the sink" >&2; cat "$pf_log" >&2; dump_evidence; exit 1; }
 echo "$reply" | jq .
 printf '%s' "$reply" | jq -e --arg m "$marker" '.reply | contains($m)' >/dev/null ||
-  { echo "the sink's reply for $session_id does not contain the marker $marker" >&2; exit 1; }
+  { echo "the sink's reply for $session_id does not contain the marker $marker" >&2; dump_evidence; exit 1; }
 
 echo "== level 2: runner reaches Succeeded and is garbage collected"
 kubectl wait -n "$NAMESPACE" clauderunners -l selfhosted.claudecode.dev/environment=real --for=jsonpath='{.status.phase}'=Succeeded --timeout=600s ||

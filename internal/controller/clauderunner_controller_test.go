@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/metrics"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/metrics/metricstest"
 )
@@ -138,6 +139,26 @@ var _ = Describe("ClaudeRunner controller", func() {
 		Expect(got.Status.PodName).To(Equal("order-1"))
 		Expect(got.Status.StartedAt).NotTo(BeNil())
 		Expect(got.Status.Conditions).To(ContainElement(HaveField("Type", selfhostedv1alpha1.ConditionRunnerReady)))
+	})
+
+	It("mounts each host-config key as a plain file in the runner pod", func() {
+		ns := newNamespace(ctx)
+		env := onDemandEnvObj(ns)
+		env.Spec.Runner.HostConfig = &selfhostedv1alpha1.ConfigMapRef{Name: hostConfigName}
+		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: hostConfigName, Namespace: ns},
+			Data: map[string]string{settingsKey: "{}", "capture-reply.sh": "exit 0"}})).To(Succeed())
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-cfg"))).To(Succeed())
+		r := ownedBy(runnerObj(ns, "order-cfg"), env)
+		Expect(k8sClient.Create(ctx, r)).To(Succeed())
+
+		pod := &corev1.Pod{}
+		Eventually(func() error { return k8sClient.Get(ctx, client.ObjectKeyFromObject(r), pod) }, timeout, interval).Should(Succeed())
+		Expect(pod.Spec.Containers[0].VolumeMounts).To(ContainElements(
+			corev1.VolumeMount{Name: hostConfigVolume, MountPath: builders.HostConfigMountPath + "/capture-reply.sh", SubPath: "capture-reply.sh", ReadOnly: true},
+			corev1.VolumeMount{Name: hostConfigVolume, MountPath: builders.HostConfigMountPath + "/" + settingsKey, SubPath: settingsKey, ReadOnly: true},
+		))
+		Expect(pod.Spec.Containers[0].VolumeMounts).NotTo(ContainElement(HaveField("MountPath", builders.HostConfigMountPath)))
 	})
 
 	It("records Succeeded then garbage-collects the runner, pod and secret after the TTL", func() {

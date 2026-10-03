@@ -40,6 +40,8 @@ func (s *sink) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path must be /<session_id>", http.StatusBadRequest)
 		return
 	}
+	// Keys are session ids, not secrets: the log shows which requests arrived.
+	log.Printf("%s /%s", r.Method, id)
 	switch r.Method {
 	case http.MethodPost:
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
