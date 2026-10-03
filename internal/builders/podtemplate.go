@@ -143,8 +143,15 @@ func RunnerPodTemplate(in RunnerPodInput) corev1.PodTemplateSpec {
 	if !in.WorkspaceFromPVC {
 		volumes = append(volumes, corev1.Volume{Name: WorkspaceVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
 	}
+	// The secret is a single file, not a directory mount on /etc/claude:
+	// the hooks, wrapper and host-config mounts live under /etc/claude, and
+	// the kubelet pre-creates every mount point nested inside a volume as a
+	// directory, which turns the host-config files into directories the
+	// runtime then cannot bind a file onto ("not a directory"). With the
+	// secret as a file, /etc/claude is a plain directory of the root
+	// filesystem and the nested mounts are created by the runtime as needed.
 	mounts := []corev1.VolumeMount{
-		{Name: volEnvironmentSecret, MountPath: SecretMountPath, ReadOnly: true},
+		{Name: volEnvironmentSecret, MountPath: SecretMountPath + "/" + SecretFileName, SubPath: SecretFileName, ReadOnly: true},
 		{Name: WorkspaceVolume, MountPath: r.BaseDir},
 		{Name: volHome, MountPath: HomeMountPath},
 		{Name: volTmp, MountPath: TmpMountPath},

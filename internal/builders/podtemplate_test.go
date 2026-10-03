@@ -89,7 +89,7 @@ func TestRunnerPodTemplateRestricted(t *testing.T) {
 			t.Fatalf("label %s missing", k)
 		}
 	}
-	wantMounts := map[string]string{testSecretKey: "/etc/claude", "workspace": testBaseDir, "home": "/home/runner", "tmp": "/tmp"}
+	wantMounts := map[string]string{testSecretKey: testSecretFile, "workspace": testBaseDir, "home": "/home/runner", "tmp": "/tmp"}
 	for _, m := range c.VolumeMounts {
 		if p, ok := wantMounts[m.Name]; ok && m.MountPath == p {
 			delete(wantMounts, m.Name)
@@ -171,6 +171,22 @@ func TestRunnerPodTemplateOptionalMounts(t *testing.T) {
 		if (m.Name == "hooks" || m.Name == "wrapper" || m.Name == volHostConfig) && !m.ReadOnly {
 			t.Fatalf("%s must be read-only", m.Name)
 		}
+	}
+}
+
+func TestRunnerPodTemplateMountsTheSecretAsAFile(t *testing.T) {
+	// A directory mount on /etc/claude would make the kubelet pre-create the
+	// nested host-config file mount points as directories.
+	tmpl := RunnerPodTemplate(secretInput(testEnv()))
+	var secret *corev1.VolumeMount
+	for i, m := range tmpl.Spec.Containers[0].VolumeMounts {
+		if m.Name == volEnvironmentSecret {
+			secret = &tmpl.Spec.Containers[0].VolumeMounts[i]
+		}
+	}
+	want := corev1.VolumeMount{Name: volEnvironmentSecret, MountPath: SecretMountPath + "/" + SecretFileName, SubPath: SecretFileName, ReadOnly: true}
+	if secret == nil || !reflect.DeepEqual(*secret, want) {
+		t.Fatalf("secret mount = %+v, want %+v", secret, want)
 	}
 }
 
