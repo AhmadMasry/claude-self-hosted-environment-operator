@@ -101,8 +101,9 @@ The list shows Mode, Ready, Replicas and Age. Conditions on `.status.conditions`
 ## Configuration notes
 
 - **Egress.** `spec.runner.networkPolicy.enabled: true` adds a default-deny egress NetworkPolicy
-  (`<env>-egress`): DNS to kube-dns and TCP 443 to the IPv4 ranges in `egressCIDRs` (at most 64), with
-  `169.254.169.254` always excluded. On-demand environments also get `<env>-egress-apiserver` so the
+  (`<env>-egress`): DNS to kube-dns, TCP 443 to the IPv4 ranges in `egressCIDRs` (at most 64), with
+  `169.254.169.254` always excluded, plus the standard egress rules in `additionalEgress` (at most 16) for
+  in-cluster services or other ports. On-demand environments also get `<env>-egress-apiserver` so the
   orchestrator reaches the API server. Off by default; see [hardening](docs/hardening.md#networkpolicy).
 - **Validation.** `runner.image` needs a tag or digest and may not be `:latest`. `baseDir` and
   `podTemplate.volumeMounts` may not use `/etc/claude`, `/home/runner` or `/tmp`. `runner.env` may not set

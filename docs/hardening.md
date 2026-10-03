@@ -90,8 +90,10 @@ create, patch and delete any Secret in that namespace.
 Set `spec.runner.networkPolicy.enabled: true`. The operator then manages:
 
 - `<env>-egress`, selecting every pod labelled `selfhosted.claudecode.dev/environment=<env>` (runners and
-  the orchestrator), egress only: DNS (UDP and TCP 53) to `k8s-app=kube-dns` pods in `kube-system`, and
-  TCP 443 to each entry of `spec.runner.networkPolicy.egressCIDRs`. With an empty list only DNS is allowed.
+  the orchestrator), egress only: DNS (UDP and TCP 53) to `k8s-app=kube-dns` pods in `kube-system`, TCP 443
+  to each entry of `spec.runner.networkPolicy.egressCIDRs`, then every rule of
+  `spec.runner.networkPolicy.additionalEgress` as written. With an empty list and no additional rules only
+  DNS is allowed.
 - `<env>-egress-apiserver`, in on-demand mode only, selecting the orchestrator pods: TCP to every
   address and port of the `default/kubernetes` Endpoints, so the spawn hook can reach the API server.
   The operator reads those Endpoints on every reconcile (no watch), so a control-plane IP change is picked
@@ -104,6 +106,11 @@ the 10-minute resync); until then an enforcing CNI blocks the hook.
   and the Endpoints are not read. The chart's `rbac.namespaced=true` cannot grant `get` on
   `default/kubernetes`, so that mode requires the value whenever an on-demand environment enables the
   policy; a control-plane IP change then needs a value update and a manager restart.
+
+`additionalEgress` takes up to 16 standard `NetworkPolicyEgressRule` objects for what `egressCIDRs` cannot
+express: in-cluster services selected by pod or namespace labels, or ports other than 443 (for example an
+internal proxy, an artifact mirror, or the reply sink of the real-environment test). An `ipBlock` in those
+rules that covers `169.254.169.254` gets the metadata exclusion added, as `egressCIDRs` entries do.
 
 `egressCIDRs` takes IPv4 CIDRs only, octets 0 to 255 and prefix 0 to 32 (CEL: "egressCIDRs must be IPv4 CIDRs"), at most 64 entries. A
 NetworkPolicy cannot name hosts, so list the address ranges of `api.anthropic.com` and your git host
