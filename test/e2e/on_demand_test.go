@@ -63,7 +63,7 @@ func onDemandSpecs() {
 			out, err := kubectlOD("get", "deploy", "e2e-od-orchestrator", "-o", "jsonpath={.spec.template.spec.initContainers[0].image}")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(out)).To(Equal(managerImage), "hook image must be the operator image via OPERATOR_IMAGE")
-			By("checking the orchestrator's API server egress policy exists (kind's default CNI does not enforce it)")
+			By("checking the orchestrator's API server egress policy exists (shape only; enforcement is not asserted)")
 			_, err = kubectlOD("get", "networkpolicy", "e2e-od-egress-apiserver")
 			Expect(err).NotTo(HaveOccurred())
 			out, err = kubectlOD("get", "events", "--field-selector", "reason=FailedCreate", "-o", "name")

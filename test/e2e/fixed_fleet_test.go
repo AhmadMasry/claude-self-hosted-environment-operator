@@ -90,7 +90,7 @@ func fixedFleetSpecs() {
 				g.Expect(strings.Fields(out)).To(Equal([]string{"Running", "Running"}))
 			}, time.Minute, 2*time.Second).Should(Succeed())
 
-			By("checking the egress NetworkPolicy exists (kind's default CNI does not enforce it)")
+			By("checking the egress NetworkPolicy exists (shape only; enforcement is not asserted)")
 			out, err = utils.Run(exec.Command("kubectl", "-n", e2eNamespace, "get", "networkpolicy", "e2e-egress",
 				"-o", "jsonpath={.spec.policyTypes} {.spec.egress[1].to[0].ipBlock.cidr}"))
 			Expect(err).NotTo(HaveOccurred())

@@ -32,7 +32,11 @@ rerun with `--force-conflicts` only if the installer's value should win.
 ## Helm users
 
     helm upgrade claude-selfhosted-operator oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator \
-      --namespace claude-selfhosted-operator-system --version X.Y.Z --reuse-values
+      --namespace claude-selfhosted-operator-system --version X.Y.Z --reset-then-reuse-values
+
+`--reset-then-reuse-values` (Helm 3.14 or later) starts from the new chart's defaults and then applies the
+values you set on the previous release, so values added in the new chart get their defaults; `--reuse-values`
+reuses the previous release's full merged values and leaves new values unset.
 
 Helm does not upgrade CRDs placed in a chart's `crds/` directory. This chart renders its CRDs from
 `templates/crd/` instead (behind `crd.enabled`, default `true`), so `helm upgrade` updates them. They carry

@@ -219,6 +219,9 @@ on-demand mode for the orchestrator pods: TCP to each address and port of
 the `default/kubernetes` Endpoints, read through the uncached reader on every
 reconcile (no watch), so a control-plane IP change is picked up on the next
 reconcile. The manager needs `get` on that one Endpoints object.
+Correction: kind's default CNI does enforce NetworkPolicy since kind
+v0.24.0 (kindnetd with sigs.k8s.io/kube-network-policies); the e2e still
+asserts the object shape only.
 
 ### 3.4 Orphaned work-order sweep
 

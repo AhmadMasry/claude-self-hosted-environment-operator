@@ -106,7 +106,9 @@ your CNI offers DNS-aware policies (for example Cilium `toFQDNs` or Calico domai
 of those in addition to or instead of this policy, or route egress through a proxy. The metadata
 exclusion is described in the checklist above.
 
-kind's default CNI does not enforce NetworkPolicy; the e2e suite checks only the objects' shape.
+kind enforces NetworkPolicy out of the box since v0.24.0 (kindnetd with
+[kube-network-policies](https://github.com/kubernetes-sigs/kube-network-policies)), but the e2e suite
+asserts only the policies' shape, not that traffic outside them is blocked.
 
 ## Secret hygiene
 
