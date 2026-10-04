@@ -101,7 +101,9 @@ kubectl create ns "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 kubectl label ns "$NAMESPACE" pod-security.kubernetes.io/enforce=restricted --overwrite
 kubectl apply -n "$NAMESPACE" -f test/real-e2e/replysink.yaml
 kubectl rollout status -n "$NAMESPACE" deployment/replysink --timeout=120s
-kubectl apply -n "$NAMESPACE" -f test/real-e2e/host-config.yaml
+kubectl apply -n "$NAMESPACE" -f test/real-e2e/host-config.yaml -f test/real-e2e/wrapper.yaml
+# shellcheck disable=SC2016
+envsubst '$NAMESPACE' < test/real-e2e/lifecycle-hooks.yaml | kubectl apply -n "$NAMESPACE" -f -
 # shellcheck disable=SC2016 # envsubst takes the literal variable names
 envsubst '$CLAUDE_ENVIRONMENT_KEY' < test/real-e2e/orchestrator-secret.yaml.tmpl | kubectl apply -n "$NAMESPACE" -f - >/dev/null
 # shellcheck disable=SC2016
@@ -189,10 +191,26 @@ done
 echo "$reply" | jq .
 printf '%s' "$reply" | jq -e --arg m "$marker" '.reply | contains($m)' >/dev/null ||
   { echo "the sink's reply for $session_id does not contain the marker $marker" >&2; dump_evidence; exit 1; }
+# The wrapper script exported E2E_WRAPPER before exec-ing the binary; the Stop
+# hook runs inside that process tree and reports it.
+printf '%s' "$reply" | jq -e '.wrapper == "ran"' >/dev/null ||
+  { echo "the wrapper script did not run: the reply's wrapper field is not \"ran\"" >&2; dump_evidence; exit 1; }
 
 echo "== level 2: runner reaches Succeeded and is garbage collected"
 kubectl wait -n "$NAMESPACE" clauderunners -l selfhosted.claudecode.dev/environment=real --for=jsonpath='{.status.phase}'=Succeeded --timeout=600s ||
   { echo "the ClaudeRunner did not reach Succeeded within 600s" >&2; exit 1; }
+
+echo "== level 2: post-session lifecycle hook ran"
+# The hook runs after the child exits, within the runner's 60s budget.
+post=
+for _ in $(seq 1 18); do
+  if post=$(curl -sf "http://127.0.0.1:18080/$session_id-post-session"); then break; fi
+  sleep 5
+done
+[ -n "$post" ] || { echo "no post-session record for $session_id in the sink" >&2; dump_evidence; exit 1; }
+echo "$post" | jq .
+printf '%s' "$post" | jq -e --arg s "$session_id" '.session_id == $s' >/dev/null ||
+  { echo "the post-session record is not for $session_id" >&2; dump_evidence; exit 1; }
 # A failed kubectl call is not "zero runners": keep polling until a call succeeds and lists none.
 n=unknown
 for _ in $(seq 1 40); do

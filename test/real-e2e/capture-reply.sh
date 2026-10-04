@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 # Stop hook for the real-environment test, after the product's remote-runner
 # capture hook: posts the turn's final reply to the reply sink keyed by the
-# session id the dispatch CLI prints. Fails open: never blocks the session.
-# It leaves a trace in the pod's private /tmp, which hack/real-session-test.sh
-# reads through kubectl exec when the run fails.
+# session id the dispatch CLI prints, with the marker the wrapper script set.
+# Fails open: never blocks the session. It leaves a trace in the pod's
+# private /tmp, which hack/real-session-test.sh reads through kubectl exec
+# when the run fails.
 set -uo pipefail
 trace=/tmp/capture-reply.log
 # CLAUDE_CODE_REMOTE_SESSION_ID is in cse_... form; the CLI prints session_...
 sid=$(printf '%s' "${CLAUDE_CODE_REMOTE_SESSION_ID:-}" | sed 's/^cse_/session_/')
 input=$(cat)
 {
-  echo "hook ran at $(date -u +%FT%TZ) sid=${sid:-unset} E2E_REPLY_URL=${E2E_REPLY_URL:-unset}"
+  echo "hook ran at $(date -u +%FT%TZ) sid=${sid:-unset} E2E_REPLY_URL=${E2E_REPLY_URL:-unset} E2E_WRAPPER=${E2E_WRAPPER:-unset}"
   echo "input keys: $(printf '%s' "$input" | jq -r 'keys | join(" ")' 2>&1)"
 } >>"$trace" 2>&1
 [ -n "${E2E_REPLY_URL:-}" ] && [ -n "$sid" ] || exit 0
-printf '%s' "$input" | jq -c --arg sid "$sid" '{session_id: $sid, reply: (.last_assistant_message // "")}' \
+printf '%s' "$input" | jq -c --arg sid "$sid" --arg w "${E2E_WRAPPER:-}" '{session_id: $sid, reply: (.last_assistant_message // ""), wrapper: $w}' \
   | curl -fsS -m 10 -X POST -H 'Content-Type: application/json' --data-binary @- "$E2E_REPLY_URL/$sid" >>"$trace" 2>&1
 echo "post exit=$? sid=$sid" >>"$trace"
 exit 0

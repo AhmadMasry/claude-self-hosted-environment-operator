@@ -42,8 +42,10 @@ sink instead of a local file.
 
 **Level 1, registration** (always runs; needs `CLAUDE_ENVIRONMENT_KEY` and `CLAUDE_ENVIRONMENT_ID`). The
 script creates the namespace (PSS `restricted`), the reply sink (`test/real-e2e/replysink.yaml`), the host
-config ConfigMap with the Stop hook (`test/real-e2e/host-config.yaml`), the environment-key Secret and the
-`ClaudeEnvironment` (`test/real-e2e/environment.yaml`), then waits for the environment to be `Ready`. Ready
+config ConfigMap with the Stop hook (`test/real-e2e/host-config.yaml`), the lifecycle-hooks ConfigMap with a
+`post-session` hook (`test/real-e2e/lifecycle-hooks.yaml`), the wrapper-script ConfigMap
+(`test/real-e2e/wrapper.yaml`), the environment-key Secret and the `ClaudeEnvironment`
+(`test/real-e2e/environment.yaml`), then waits for the environment to be `Ready`. Ready
 in on-demand mode requires the orchestrator pod to be ready, and its readiness probe requires the health
 endpoint to report the orchestrator connected, so this proves it authenticated to Anthropic with the key. No session is created and nothing is billed.
 
@@ -56,9 +58,17 @@ starts one session routed to the environment, and asserts that:
 2. the orchestrator's spawn hook created a `ClaudeRunner` (labelled
    `selfhosted.claudecode.dev/environment=real`);
 3. the runner's Stop hook posted a reply containing the sentinel to the reply sink;
-4. the `ClaudeRunner` reaches `Succeeded` once the idle session is released
+4. the reply carries the marker the wrapper script (`spec.runner.wrapperScript`) exported before it
+   exec-ed the runner binary, so the wrapper ran from the operator's mount;
+5. the `ClaudeRunner` reaches `Succeeded` once the idle session is released
    (`releaseIdleSessionMinutes: 1`);
-5. the `ClaudeRunner` is garbage-collected after `runnerTTLSecondsAfterFinished` (120 s).
+6. the `post-session` lifecycle hook (`spec.runner.lifecycleHooks`) posted a record for the session to
+   the sink, with the exit reason and whether `E2E_REPLY_URL` reached it;
+7. the `ClaudeRunner` is garbage-collected after `runnerTTLSecondsAfterFinished` (120 s).
+
+Items 4 and 6 exist because the three customization features reach the runner through ConfigMap mounts,
+whose keys are symlinks unless mounted with `subPath` (see docs/hardening.md): the test proves each one is
+honoured as mounted.
 
 ### How the session is started
 
@@ -79,8 +89,8 @@ The hook reaches the runner through `spec.runner.hostConfig`: the ConfigMap is m
 `/etc/claude/host-config` and the operator sets `SELF_HOSTED_RUNNER_HOST_CONFIG_DIR`, which the runner seeds
 into each session's config directory. The mount is not executable, so `settings.json` runs the hook as
 `bash /etc/claude/host-config/capture-reply.sh`. `E2E_REPLY_URL` is set through `spec.runner.env`.
-`test/real-e2e/capture-reply.sh` is a copy of the embedded script kept for `shellcheck`; keep the two
-identical.
+`test/real-e2e/capture-reply.sh`, `post-session.sh` and `wrapper.sh` are copies of the embedded scripts kept
+for `shellcheck`; `hack/check-hook-copy.sh` (run by `make lint`) fails when a copy drifts.
 
 When level 2 fails, the script prints redacted evidence to stderr: the `ClaudeRunner` objects, the
 namespace events, the sink's request log, the runner pod's log (streamed from the moment the pod appears,
@@ -193,8 +203,8 @@ orchestrator and reply sink logs are not printed, because a session's content co
 reply sink and runner base images in `test/replysink/Dockerfile` are pinned by digest; the example runner
 image picks the Claude binary from `TARGETARCH` (override with `--build-arg CLAUDE_ARCH`). Resolving
 `CLAUDE_CODE_VERSION` to an empty string (the stable-release lookup failing) fails `make real-runner-image`
-immediately. `hack/check-hook-copy.sh` (run by `make lint` and the `test` workflow) fails when the Stop hook
-embedded in `test/real-e2e/host-config.yaml` differs from `test/real-e2e/capture-reply.sh`.
+immediately. `hack/check-hook-copy.sh` (run by `make lint` and the `test` workflow) fails when a script
+embedded in a `test/real-e2e` ConfigMap differs from its standalone copy.
 
 ### Cost
 

@@ -1,0 +1,16 @@
+# Wrapper script for the real-environment test runner, delivered through
+# runner.wrapperScript (mounted at /etc/claude/wrapper, mode 0555). The
+# embedded script must equal test/real-e2e/wrapper.sh.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: real-wrapper
+data:
+  wrapper.sh: |
+    #!/usr/bin/env bash
+    # Wrapper for the real-environment test: marks the session so the Stop hook
+    # can report that the wrapper ran, then execs the runner's own binary with
+    # the arguments as given, which keeps stdin and file descriptor 3 attached as
+    # the product requires.
+    export E2E_WRAPPER=ran
+    exec "$CLAUDE_RUNNER_CLAUDE_BIN" "$@"
