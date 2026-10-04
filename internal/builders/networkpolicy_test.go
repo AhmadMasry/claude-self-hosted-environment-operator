@@ -17,7 +17,10 @@ package builders
 
 import (
 	"net/netip"
+	"reflect"
 	"testing"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -59,6 +62,43 @@ func TestEnvironmentNetworkPolicy(t *testing.T) {
 	}
 	if ex := https.To[1].IPBlock.Except; len(ex) != 0 {
 		t.Fatalf("a CIDR not containing the metadata endpoint must have no except (the API server rejects it): %+v", https.To[1].IPBlock)
+	}
+}
+
+func TestEnvironmentNetworkPolicyAppendsAdditionalEgress(t *testing.T) {
+	env := testEnv()
+	tcp := corev1.ProtocolTCP
+	sink := networkingv1.NetworkPolicyEgressRule{
+		Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: new(intstr.FromInt32(8080))}},
+		To:    []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": "sink"}}}},
+	}
+	metadata := networkingv1.NetworkPolicyEgressRule{
+		To: []networkingv1.NetworkPolicyPeer{
+			{IPBlock: &networkingv1.IPBlock{CIDR: "169.254.0.0/16", Except: []string{"169.254.1.0/24"}}},
+			{IPBlock: &networkingv1.IPBlock{CIDR: "0.0.0.0/0", Except: []string{metadataEndpointCIDR}}},
+			{IPBlock: &networkingv1.IPBlock{CIDR: "10.0.0.0/8"}},
+		},
+	}
+	env.Spec.Runner.NetworkPolicy = &selfhostedv1alpha1.NetworkPolicySpec{Enabled: true, AdditionalEgress: []networkingv1.NetworkPolicyEgressRule{sink, metadata}}
+	np := EnvironmentNetworkPolicy(env)
+	if len(np.Spec.Egress) != 3 {
+		t.Fatalf("expected DNS plus the two additional rules, got %d", len(np.Spec.Egress))
+	}
+	if !reflect.DeepEqual(np.Spec.Egress[1], sink) {
+		t.Fatalf("selector rule must be appended as given: %+v", np.Spec.Egress[1])
+	}
+	got := np.Spec.Egress[2].To
+	if want := []string{"169.254.1.0/24", metadataEndpointCIDR}; !reflect.DeepEqual(got[0].IPBlock.Except, want) {
+		t.Fatalf("metadata exclusion must be added to an ipBlock covering it: %v", got[0].IPBlock.Except)
+	}
+	if want := []string{metadataEndpointCIDR}; !reflect.DeepEqual(got[1].IPBlock.Except, want) {
+		t.Fatalf("an existing exclusion must not be duplicated: %v", got[1].IPBlock.Except)
+	}
+	if len(got[2].IPBlock.Except) != 0 {
+		t.Fatalf("an ipBlock not covering the endpoint must stay as given: %v", got[2].IPBlock.Except)
+	}
+	if len(env.Spec.Runner.NetworkPolicy.AdditionalEgress[1].To[0].IPBlock.Except) != 1 {
+		t.Fatal("the environment's own rules must not be modified")
 	}
 }
 

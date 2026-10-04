@@ -19,6 +19,7 @@ package builders
 import (
 	"net"
 	"net/netip"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -45,8 +46,10 @@ func NetworkPolicyName(env *selfhostedv1alpha1.ClaudeEnvironment) string {
 
 // EnvironmentNetworkPolicy is a default-deny egress policy for every pod of
 // the environment: DNS to kube-dns, TCP 443 to the user's CIDRs with the
-// cloud metadata endpoint always excluded. The user supplies the CIDRs for
-// api.anthropic.com and the git host; hostnames cannot be expressed here.
+// cloud metadata endpoint always excluded, then the user's additionalEgress
+// rules as given, with the same exclusion applied to their ipBlocks. The
+// user supplies the CIDRs for api.anthropic.com and the git host; hostnames
+// cannot be expressed here.
 func EnvironmentNetworkPolicy(env *selfhostedv1alpha1.ClaudeEnvironment) *networkingv1.NetworkPolicy {
 	udp, tcp := corev1.ProtocolUDP, corev1.ProtocolTCP
 	dns := networkingv1.NetworkPolicyEgressRule{
@@ -70,6 +73,17 @@ func EnvironmentNetworkPolicy(env *selfhostedv1alpha1.ClaudeEnvironment) *networ
 			https.To = append(https.To, networkingv1.NetworkPolicyPeer{IPBlock: block})
 		}
 		egress = append(egress, https)
+	}
+	if np := env.Spec.Runner.NetworkPolicy; np != nil {
+		for _, rule := range np.AdditionalEgress {
+			rule := *rule.DeepCopy()
+			for i := range rule.To {
+				if block := rule.To[i].IPBlock; block != nil && containsMetadataEndpoint(block.CIDR) && !slices.Contains(block.Except, metadataEndpointCIDR) {
+					block.Except = append(block.Except, metadataEndpointCIDR)
+				}
+			}
+			egress = append(egress, rule)
+		}
 	}
 	labels := map[string]string{selfhostedv1alpha1.LabelEnvironment: env.Name, selfhostedv1alpha1.LabelPartOf: selfhostedv1alpha1.PartOfValue}
 	return &networkingv1.NetworkPolicy{

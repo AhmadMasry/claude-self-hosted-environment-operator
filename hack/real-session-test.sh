@@ -112,6 +112,9 @@ envsubst '$RUNNER_IMAGE $NAMESPACE' < test/real-e2e/environment.yaml | kubectl a
 echo "== level 1: orchestrator connected"
 kubectl wait -n "$NAMESPACE" claudeenvironment/real --for=condition=Ready=True --timeout=300s
 kubectl get -n "$NAMESPACE" claudeenvironment/real -o jsonpath='{.status.conditions}' | jq .
+# The egress policies the environment enables; kind's CNI enforces them, so
+# the rest of the run proves they allow exactly what the session needs.
+kubectl get -n "$NAMESPACE" networkpolicies -l selfhosted.claudecode.dev/environment=real
 
 if [ -n "${CLAUDE_CODE_OAUTH_REFRESH_TOKEN:-}" ]; then
   : "${CLAUDE_CODE_OAUTH_SCOPES:?CLAUDE_CODE_OAUTH_SCOPES is required with CLAUDE_CODE_OAUTH_REFRESH_TOKEN}"
