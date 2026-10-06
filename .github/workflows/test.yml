@@ -39,6 +39,30 @@ jobs:
       - name: Chart lint and contract test
         run: make helm-lint test-chart
 
+  generated:
+    permissions:
+      contents: read
+    name: generated-up-to-date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # Generated files are committed and never edited by hand (AGENTS.md):
+      # regenerate everything and fail on any difference.
+      - name: Regenerate and compare
+        run: |
+          go mod tidy
+          make manifests generate helm-chart
+          git diff --exit-code -- go.mod go.sum api config dist
+
   race:
     permissions:
       contents: read
