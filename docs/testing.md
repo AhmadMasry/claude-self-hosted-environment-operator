@@ -106,7 +106,10 @@ whether it ran, which session id and sink URL it saw, the keys of its input and 
   the capture hook, and its sessions consume the organization's usage.
 - For level 2, the organization's GitHub connection must cover the repository the session checks out
   (`test_repo`, or this repository by default).
-- Repository secrets (Settings > Secrets and variables > Actions):
+- Secrets of the GitHub Environment `real-e2e` (Settings > Environments). The workflow's job declares
+  `environment: real-e2e`, so only runs on branches the environment allows (`master`, `test/*`, `fix/*`,
+  `feat/*`) can read them, and each run waits under "Review deployments" until a required reviewer approves
+  it. Store them with `gh secret set <name> --env real-e2e`.
   - `CLAUDE_ENVIRONMENT_KEY`: the environment key shown once when the environment was created. Only the
     orchestrator pod uses it.
   - `CLAUDE_ENVIRONMENT_ID`: the environment's `ccpool_...` ID, shown in the environment's detail dialog on
@@ -116,8 +119,9 @@ whether it ran, which session id and sink URL it saw, the keys of its input and 
     `claude auth login` exchanges it directly instead of opening a browser.
   - `CLAUDE_CODE_OAUTH_SCOPES`: the space-separated scopes the token was issued with, for example
     `user:profile user:inference user:sessions:claude_code`. Required with the refresh token.
-  - `REAL_E2E_SECRETS_PAT`: a fine-grained personal access token for this repository with the Secrets
-    permission set to read and write, and nothing else. Each exchange of the refresh token retires it and
+  - `REAL_E2E_SECRETS_PAT`: a fine-grained personal access token for this repository with the Secrets and
+    Environments permissions set to read and write, and nothing else (environment secrets are governed by
+    the Environments permission). Each exchange of the refresh token retires it and
     issues a new one (verified on 2026-10-03: a second exchange of the same token fails with HTTP 400), so
     the workflow's login step stores the new token back into `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` before the
     test runs. The step refuses to log in when this secret is missing, so a misconfigured run cannot retire
@@ -139,7 +143,8 @@ and [environment variables](https://code.claude.com/docs/en/env-vars)):
   appears in that directory. Keep the directory private (mode 700) and do not put it under `/tmp`.
 - The file holds `claudeAiOauth.refreshToken`, `claudeAiOauth.scopes` and `claudeAiOauth.refreshTokenExpiresAt`.
   Store the token and the scopes (joined with spaces) as `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` and
-  `CLAUDE_CODE_OAUTH_SCOPES` by piping them into `gh secret set`, so they never appear on screen.
+  `CLAUDE_CODE_OAUTH_SCOPES` by piping them into `gh secret set <name> --env real-e2e`, so they never
+  appear on screen.
 - The token rotates on every exchange (see `REAL_E2E_SECRETS_PAT` above). After the first CI run the secret
   is newer than your local file, so a later manual renewal starts from a fresh interactive login, not from
   the file.
@@ -149,7 +154,8 @@ and [environment variables](https://code.claude.com/docs/en/env-vars)):
 
 ### Running it from GitHub Actions
 
-Run the `real-e2e` workflow from the Actions tab (Run workflow). Inputs:
+Run the `real-e2e` workflow from the Actions tab (Run workflow) on a branch the `real-e2e` environment
+allows, then approve the run under "Review deployments" when it pauses. Inputs:
 
 | Input | Default | Meaning |
 | :- | :- | :- |
