@@ -28,6 +28,7 @@ jobs:
   real:
     name: Real environment
     runs-on: ubuntu-latest
+    environment: real-e2e
     timeout-minutes: 45
     permissions:
       contents: read
@@ -76,7 +77,7 @@ jobs:
           [ -n "$CLAUDE_CODE_OAUTH_SCOPES" ] || { echo "::error::Secret CLAUDE_CODE_OAUTH_SCOPES is required with CLAUDE_CODE_OAUTH_REFRESH_TOKEN"; exit 1; }
           [ -n "$GH_TOKEN" ] || { echo "::error::Secret REAL_E2E_SECRETS_PAT is required with CLAUDE_CODE_OAUTH_REFRESH_TOKEN: the exchange rotates the token"; exit 1; }
           claude auth login >/dev/null
-          jq -r '.claudeAiOauth.refreshToken' "$HOME/.claude/.credentials.json" | gh secret set CLAUDE_CODE_OAUTH_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY"
+          jq -r '.claudeAiOauth.refreshToken' "$HOME/.claude/.credentials.json" | gh secret set CLAUDE_CODE_OAUTH_REFRESH_TOKEN --env real-e2e --repo "$GITHUB_REPOSITORY"
           echo "Logged in and stored the rotated refresh token"
 
       - name: Run the real-environment test
