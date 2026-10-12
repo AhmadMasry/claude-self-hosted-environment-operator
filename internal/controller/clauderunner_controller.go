@@ -61,10 +61,10 @@ type ClaudeRunnerReconciler struct {
 
 func (r *ClaudeRunnerReconciler) now() time.Time { return tick(r.Clock) }
 
-// +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=clauderunners,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=clauderunners/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=clauderunners/finalizers,verbs=update
-// +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=claudeenvironments,verbs=get;list;watch
+// +kubebuilder:rbac:groups=claude.cloudeng.ps,resources=clauderunners,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=claude.cloudeng.ps,resources=clauderunners/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=claude.cloudeng.ps,resources=clauderunners/finalizers,verbs=update
+// +kubebuilder:rbac:groups=claude.cloudeng.ps,resources=claudeenvironments,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch

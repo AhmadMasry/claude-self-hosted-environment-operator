@@ -10,13 +10,13 @@ spec:
       + ':') && request.userInfo.username.endsWith('-orchestrator') && request.userInfo.username.size()
       > ('system:serviceaccount:' + request.namespace + ':').size() + '-orchestrator'.size()
     name: orchestrator-service-account
-  - expression: authorizer.group('selfhosted.claudecode.dev').resource('claudeenvironments').namespace(request.namespace).name(request.userInfo.username.substring(('system:serviceaccount:'
+  - expression: authorizer.group('claude.cloudeng.ps').resource('claudeenvironments').namespace(request.namespace).name(request.userInfo.username.substring(('system:serviceaccount:'
       + request.namespace + ':').size(), request.userInfo.username.size() - '-orchestrator'.size())).check('get').allowed()
     name: bound-by-the-operator
   matchConstraints:
     resourceRules:
     - apiGroups:
-      - selfhosted.claudecode.dev
+      - claude.cloudeng.ps
       apiVersions:
       - v1alpha1
       operations:
@@ -27,7 +27,7 @@ spec:
   - expression: |-
       object.spec.workOrderSecretRef.name == object.metadata.name + '-work-order' && has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(o,
 
-        o.apiVersion == 'selfhosted.claudecode.dev/v1alpha1' && o.kind == 'ClaudeEnvironment' &&
+        o.apiVersion == 'claude.cloudeng.ps/v1alpha1' && o.kind == 'ClaudeEnvironment' &&
         has(o.controller) && o.controller && o.name == variables.env &&
         object.spec.environmentRef.name == o.name)
     message: an orchestrator may only create ClaudeRunners owned by its own ClaudeEnvironment

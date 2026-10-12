@@ -93,7 +93,7 @@ claude_ai_login() {
 }
 
 echo "== operator ready"
-kubectl wait --for=condition=Established crd/claudeenvironments.selfhosted.claudecode.dev crd/clauderunners.selfhosted.claudecode.dev --timeout=60s
+kubectl wait --for=condition=Established crd/claudeenvironments.claude.cloudeng.ps crd/clauderunners.claude.cloudeng.ps --timeout=60s
 kubectl rollout status -n "$OPERATOR_NAMESPACE" deployment/claude-selfhosted-operator-controller-manager --timeout=180s
 
 echo "== namespace and sink"
@@ -114,7 +114,7 @@ kubectl wait -n "$NAMESPACE" claudeenvironment/real --for=condition=Ready=True -
 kubectl get -n "$NAMESPACE" claudeenvironment/real -o jsonpath='{.status.conditions}' | jq .
 # The egress policies the environment enables; kind's CNI enforces them, so
 # the rest of the run proves they allow exactly what the session needs.
-kubectl get -n "$NAMESPACE" networkpolicies -l selfhosted.claudecode.dev/environment=real
+kubectl get -n "$NAMESPACE" networkpolicies -l claude.cloudeng.ps/environment=real
 
 if [ -n "${CLAUDE_CODE_OAUTH_REFRESH_TOKEN:-}" ]; then
   : "${CLAUDE_CODE_OAUTH_SCOPES:?CLAUDE_CODE_OAUTH_SCOPES is required with CLAUDE_CODE_OAUTH_REFRESH_TOKEN}"
@@ -156,7 +156,7 @@ echo "session $session_id"
 echo "== level 2: runner lifecycle"
 phase=
 for _ in $(seq 1 60); do
-  phase=$(kubectl get -n "$NAMESPACE" clauderunners -l selfhosted.claudecode.dev/environment=real -o jsonpath='{.items[0].status.phase}' 2>/dev/null || true)
+  phase=$(kubectl get -n "$NAMESPACE" clauderunners -l claude.cloudeng.ps/environment=real -o jsonpath='{.items[0].status.phase}' 2>/dev/null || true)
   [ -n "$phase" ] && break
   sleep 5
 done
@@ -164,7 +164,7 @@ echo "runner phase: ${phase:-none}"
 [ -n "$phase" ] || { echo "no ClaudeRunner appeared for session $session_id within 300s" >&2; dump_evidence; exit 1; }
 # Stream the runner pod's log from now on; it is only printed, redacted, if
 # the run fails.
-runner_pod=$(kubectl get -n "$NAMESPACE" clauderunners -l selfhosted.claudecode.dev/environment=real -o jsonpath='{.items[0].status.podName}' 2>/dev/null || true)
+runner_pod=$(kubectl get -n "$NAMESPACE" clauderunners -l claude.cloudeng.ps/environment=real -o jsonpath='{.items[0].status.podName}' 2>/dev/null || true)
 if [ -n "$runner_pod" ]; then
   runner_log=$(mktemp)
   kubectl logs -n "$NAMESPACE" -f "$runner_pod" --all-containers >"$runner_log" 2>&1 &
@@ -200,7 +200,7 @@ printf '%s' "$reply" | jq -e '.wrapper == "ran"' >/dev/null ||
   { echo "the wrapper script did not run: the reply's wrapper field is not \"ran\"" >&2; dump_evidence; exit 1; }
 
 echo "== level 2: runner reaches Succeeded and is garbage collected"
-kubectl wait -n "$NAMESPACE" clauderunners -l selfhosted.claudecode.dev/environment=real --for=jsonpath='{.status.phase}'=Succeeded --timeout=600s ||
+kubectl wait -n "$NAMESPACE" clauderunners -l claude.cloudeng.ps/environment=real --for=jsonpath='{.status.phase}'=Succeeded --timeout=600s ||
   { echo "the ClaudeRunner did not reach Succeeded within 600s" >&2; exit 1; }
 
 echo "== level 2: post-session lifecycle hook ran"
@@ -217,7 +217,7 @@ printf '%s' "$post" | jq -e --arg s "$session_id" '.session_id == $s' >/dev/null
 # A failed kubectl call is not "zero runners": keep polling until a call succeeds and lists none.
 n=unknown
 for _ in $(seq 1 40); do
-  if out=$(kubectl get -n "$NAMESPACE" clauderunners -l selfhosted.claudecode.dev/environment=real -o name 2>/dev/null); then
+  if out=$(kubectl get -n "$NAMESPACE" clauderunners -l claude.cloudeng.ps/environment=real -o name 2>/dev/null); then
     n=$(printf '%s' "$out" | grep -c . || true)
     [ "$n" = 0 ] && break
   fi

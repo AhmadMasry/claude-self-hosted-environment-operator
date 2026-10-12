@@ -34,7 +34,7 @@ import (
 const (
 	e2eNamespace    = "claude-e2e"
 	deployName      = "e2e-runner"
-	configHashQuery = `jsonpath={.spec.template.metadata.annotations.selfhosted\.claudecode\.dev/config-hash}`
+	configHashQuery = `jsonpath={.spec.template.metadata.annotations.claude\.cloudeng\.ps/config-hash}`
 )
 
 // fixedFleetSpecs registers the fixed-mode specs. They are called from inside the
@@ -85,7 +85,7 @@ func fixedFleetSpecs() {
 
 			Eventually(func(g Gomega) {
 				out, err := utils.Run(exec.Command("kubectl", "-n", e2eNamespace, "get", "pods",
-					"-l", "selfhosted.claudecode.dev/environment=e2e", "-o", "jsonpath={.items[*].status.phase}"))
+					"-l", "claude.cloudeng.ps/environment=e2e", "-o", "jsonpath={.items[*].status.phase}"))
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(strings.Fields(out)).To(Equal([]string{"Running", "Running"}))
 			}, time.Minute, 2*time.Second).Should(Succeed())

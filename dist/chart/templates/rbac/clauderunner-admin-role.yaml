@@ -17,13 +17,13 @@ metadata:
   name: {{ include "claude-selfhosted-operator.resourceName" (dict "suffix" "clauderunner-admin-role" "context" $) }}
 rules:
 - apiGroups:
-  - selfhosted.claudecode.dev
+  - claude.cloudeng.ps
   resources:
   - clauderunners
   verbs:
   - '*'
 - apiGroups:
-  - selfhosted.claudecode.dev
+  - claude.cloudeng.ps
   resources:
   - clauderunners/status
   verbs:

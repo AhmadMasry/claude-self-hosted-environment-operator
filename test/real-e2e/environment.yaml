@@ -1,6 +1,6 @@
 # On-demand environment for the real-environment test. Rendered by
 # hack/real-session-test.sh with envsubst ($RUNNER_IMAGE, $NAMESPACE only).
-apiVersion: selfhosted.claudecode.dev/v1alpha1
+apiVersion: claude.cloudeng.ps/v1alpha1
 kind: ClaudeEnvironment
 metadata:
   name: real

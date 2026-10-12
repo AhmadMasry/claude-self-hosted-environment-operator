@@ -37,13 +37,13 @@ const (
 	ReasonAsExpected            = "AsExpected"
 	ReasonFixedModeSecretOnPods = "FixedModeSecretOnPods"
 
-	LabelEnvironment     = "selfhosted.claudecode.dev/environment"
-	LabelRole            = "selfhosted.claudecode.dev/role"
+	LabelEnvironment     = "claude.cloudeng.ps/environment"
+	LabelRole            = "claude.cloudeng.ps/role"
 	LabelPartOf          = "app.kubernetes.io/part-of"
 	PartOfValue          = "claude-code-self-hosted-runner"
 	RoleRunner           = "runner"
 	RoleOrchestrator     = "orchestrator"
-	AnnotationConfigHash = "selfhosted.claudecode.dev/config-hash"
+	AnnotationConfigHash = "claude.cloudeng.ps/config-hash"
 	FieldOwner           = "claude-selfhosted-operator"
 
 	ConditionRunnerReady = "Ready"
@@ -68,10 +68,10 @@ const (
 	ReasonCreated                      = "Created"
 	ReasonOrphanedWorkOrderDeleted     = "OrphanedWorkOrderDeleted"
 
-	LabelOrderID          = "selfhosted.claudecode.dev/order-id"
-	LabelSessionID        = "selfhosted.claudecode.dev/session-id"
-	AnnotationTraceparent = "selfhosted.claudecode.dev/traceparent"
-	RunnerFinalizer       = "selfhosted.claudecode.dev/runner-pod"
+	LabelOrderID          = "claude.cloudeng.ps/order-id"
+	LabelSessionID        = "claude.cloudeng.ps/session-id"
+	AnnotationTraceparent = "claude.cloudeng.ps/traceparent"
+	RunnerFinalizer       = "claude.cloudeng.ps/runner-pod"
 
 	WorkOrderSecretKey    = "jwt"
 	WorkOrderSecretSuffix = "-work-order"

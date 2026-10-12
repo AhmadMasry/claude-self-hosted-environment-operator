@@ -30,7 +30,7 @@ import (
 
 const (
 	testOrchestratorName = "platform-orchestrator"
-	testAPIGroup         = "selfhosted.claudecode.dev"
+	testAPIGroup         = "claude.cloudeng.ps"
 	verbGet              = "get"
 	verbCreate           = "create"
 	logLevelDebug        = "debug"

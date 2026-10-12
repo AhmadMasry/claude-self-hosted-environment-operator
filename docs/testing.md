@@ -56,7 +56,7 @@ starts one session routed to the environment, and asserts that:
 
 1. the CLI returns a `session_id`;
 2. the orchestrator's spawn hook created a `ClaudeRunner` (labelled
-   `selfhosted.claudecode.dev/environment=real`);
+   `claude.cloudeng.ps/environment=real`);
 3. the runner's Stop hook posted a reply containing the sentinel to the reply sink;
 4. the reply carries the marker the wrapper script (`spec.runner.wrapperScript`) exported before it
    exec-ed the runner binary, so the wrapper ran from the operator's mount;

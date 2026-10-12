@@ -114,15 +114,15 @@ func (r *ClaudeEnvironmentReconciler) apiServerEndpoints() []netip.AddrPort {
 	return r.APIServerEndpoints
 }
 
-// +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=claudeenvironments,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=claudeenvironments/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=claudeenvironments/finalizers,verbs=update
+// +kubebuilder:rbac:groups=claude.cloudeng.ps,resources=claudeenvironments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=claude.cloudeng.ps,resources=claudeenvironments/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=claude.cloudeng.ps,resources=claudeenvironments/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;patch;delete
-// +kubebuilder:rbac:groups=selfhosted.claudecode.dev,resources=clauderunners,verbs=get;list;watch
+// +kubebuilder:rbac:groups=claude.cloudeng.ps,resources=clauderunners,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=endpoints,verbs=get,resourceNames=kubernetes
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete

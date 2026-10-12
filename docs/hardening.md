@@ -66,14 +66,14 @@ They match a request only when both hold:
 For a matched identity:
 
 - **Secrets** (CREATE, UPDATE, DELETE; a patch arrives as UPDATE): the name must end in `-work-order`, and the
-  label `selfhosted.claudecode.dev/environment` must equal `<env>` on the new object (CREATE, UPDATE) and
+  label `claude.cloudeng.ps/environment` must equal `<env>` on the new object (CREATE, UPDATE) and
   on the old object (UPDATE, DELETE), and the new object's `type` must be `Opaque` (CREATE, UPDATE; an
   omitted type is defaulted to `Opaque` before admission). An orchestrator can therefore touch only its own
   environment's work orders, even in a shared namespace, and cannot mint a
   `kubernetes.io/service-account-token` Secret under a work-order name. Denial message: "an orchestrator ServiceAccount may only manage its own
   environment's Secrets named \*-work-order".
 - **ClaudeRunners** (CREATE): the controller owner reference must be the ClaudeEnvironment `<env>` with
-  apiVersion `selfhosted.claudecode.dev/v1alpha1`, `spec.environmentRef.name` must be `<env>`, and
+  apiVersion `claude.cloudeng.ps/v1alpha1`, `spec.environmentRef.name` must be `<env>`, and
   `spec.workOrderSecretRef.name` must be `metadata.name + '-work-order'`. Denial message: "an orchestrator
   may only create ClaudeRunners owned by its own ClaudeEnvironment that reference their own work order".
 
@@ -89,7 +89,7 @@ create, patch and delete any Secret in that namespace.
 
 Set `spec.runner.networkPolicy.enabled: true`. The operator then manages:
 
-- `<env>-egress`, selecting every pod labelled `selfhosted.claudecode.dev/environment=<env>` (runners and
+- `<env>-egress`, selecting every pod labelled `claude.cloudeng.ps/environment=<env>` (runners and
   the orchestrator), egress only: DNS (UDP and TCP 53) to `k8s-app=kube-dns` pods in `kube-system`, TCP 443
   to each entry of `spec.runner.networkPolicy.egressCIDRs`, then every rule of
   `spec.runner.networkPolicy.additionalEgress` as written. With an empty list and no additional rules only
@@ -160,7 +160,7 @@ informers are scoped as follows:
 
 | Object | Cached |
 | :- | :- |
-| Pods | Only pods with `selfhosted.claudecode.dev/role` in (`runner`, `orchestrator`) |
+| Pods | Only pods with `claude.cloudeng.ps/role` in (`runner`, `orchestrator`) |
 | ServiceAccounts, Roles, RoleBindings, NetworkPolicies | Only objects labelled `app.kubernetes.io/part-of=claude-code-self-hosted-runner` |
 | Secrets, ConfigMaps | All, because users name them |
 

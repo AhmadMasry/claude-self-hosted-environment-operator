@@ -7,7 +7,7 @@ All notable changes to this project are recorded here. The format follows
 
 ### API
 
-- `ClaudeEnvironment` (`selfhosted.claudecode.dev/v1alpha1`, short name `cenv`) with two modes:
+- `ClaudeEnvironment` (`claude.cloudeng.ps/v1alpha1`, short name `cenv`) with two modes:
   `spec.fixed` (a Deployment, or a StatefulSet with `persistentWorkspace`) and `spec.onDemand` (an
   orchestrator that spawns one runner pod per session). Runner settings map onto the
   `claude self-hosted-runner` flags.

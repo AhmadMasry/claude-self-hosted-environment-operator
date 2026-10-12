@@ -7,9 +7,9 @@ metadata:
     "helm.sh/resource-policy": keep
     {{- end }}
     controller-gen.kubebuilder.io/version: v0.22.0
-  name: clauderunners.selfhosted.claudecode.dev
+  name: clauderunners.claude.cloudeng.ps
 spec:
-  group: selfhosted.claudecode.dev
+  group: claude.cloudeng.ps
   names:
     kind: ClaudeRunner
     listKind: ClaudeRunnerList

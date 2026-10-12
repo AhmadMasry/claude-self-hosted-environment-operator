@@ -80,7 +80,7 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
 
        kubectl apply -f examples/hooks-configmap.yaml -f examples/fixed-fleet.yaml
 
-A minimal single-resource sample is in [`config/samples`](config/samples/selfhosted_v1alpha1_claudeenvironment.yaml).
+A minimal single-resource sample is in [`config/samples`](config/samples/claude_v1alpha1_claudeenvironment.yaml).
 
 ## Reading status
 

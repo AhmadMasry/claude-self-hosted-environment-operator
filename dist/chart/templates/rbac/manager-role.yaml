@@ -80,6 +80,35 @@ rules:
   - update
   - watch
 - apiGroups:
+  - claude.cloudeng.ps
+  resources:
+  - claudeenvironments
+  - clauderunners
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - claude.cloudeng.ps
+  resources:
+  - claudeenvironments/finalizers
+  - clauderunners/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - claude.cloudeng.ps
+  resources:
+  - claudeenvironments/status
+  - clauderunners/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - networking.k8s.io
   resources:
   - networkpolicies
@@ -104,32 +133,3 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - selfhosted.claudecode.dev
-  resources:
-  - claudeenvironments
-  - clauderunners
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - selfhosted.claudecode.dev
-  resources:
-  - claudeenvironments/finalizers
-  - clauderunners/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - selfhosted.claudecode.dev
-  resources:
-  - claudeenvironments/status
-  - clauderunners/status
-  verbs:
-  - get
-  - patch
-  - update
