@@ -2,8 +2,8 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
-- bases/selfhosted.claudecode.dev_claudeenvironments.yaml
-- bases/selfhosted.claudecode.dev_clauderunners.yaml
+- bases/claude.cloudeng.ps_claudeenvironments.yaml
+- bases/claude.cloudeng.ps_clauderunners.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

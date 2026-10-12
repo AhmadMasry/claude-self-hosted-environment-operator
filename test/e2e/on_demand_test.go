@@ -125,7 +125,7 @@ kind: Secret
 metadata:
   name: ok-work-order
   labels:
-    selfhosted.claudecode.dev/environment: e2e-od
+    claude.cloudeng.ps/environment: e2e-od
 stringData:
   jwt: x
 `
@@ -142,7 +142,7 @@ kind: Secret
 metadata:
   name: token-work-order
   labels:
-    selfhosted.claudecode.dev/environment: e2e-od
+    claude.cloudeng.ps/environment: e2e-od
   annotations:
     kubernetes.io/service-account.name: e2e-od-orchestrator
 type: kubernetes.io/service-account-token
@@ -155,12 +155,12 @@ type: kubernetes.io/service-account-token
 
 			uid, err := kubectlOD("get", "claudeenvironment", "e2e-od", "-o", "jsonpath={.metadata.uid}")
 			Expect(err).NotTo(HaveOccurred())
-			runner := `apiVersion: selfhosted.claudecode.dev/v1alpha1
+			runner := `apiVersion: claude.cloudeng.ps/v1alpha1
 kind: ClaudeRunner
 metadata:
   name: evil-order
   ownerReferences:
-    - apiVersion: selfhosted.claudecode.dev/v1alpha1
+    - apiVersion: claude.cloudeng.ps/v1alpha1
       kind: ClaudeEnvironment
       name: e2e-od
       uid: ` + strings.TrimSpace(uid) + `

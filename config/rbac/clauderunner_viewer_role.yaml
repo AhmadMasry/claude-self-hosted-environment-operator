@@ -1,7 +1,7 @@
 # This rule is not used by the project claude-selfhosted-operator itself.
 # It is provided to allow the cluster admin to help manage permissions for users.
 #
-# Grants read-only access to selfhosted.claudecode.dev resources.
+# Grants read-only access to claude.cloudeng.ps resources.
 # This role is intended for users who need visibility into these resources
 # without permissions to modify them. It is ideal for monitoring purposes and limited-access viewing.
 
@@ -14,7 +14,7 @@ metadata:
   name: clauderunner-viewer-role
 rules:
 - apiGroups:
-  - selfhosted.claudecode.dev
+  - claude.cloudeng.ps
   resources:
   - clauderunners
   verbs:
@@ -22,7 +22,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - selfhosted.claudecode.dev
+  - claude.cloudeng.ps
   resources:
   - clauderunners/status
   verbs:

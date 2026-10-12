@@ -17,7 +17,7 @@ metadata:
   name: {{ include "claude-selfhosted-operator.resourceName" (dict "suffix" "clauderunner-viewer-role" "context" $) }}
 rules:
 - apiGroups:
-  - selfhosted.claudecode.dev
+  - claude.cloudeng.ps
   resources:
   - clauderunners
   verbs:
@@ -25,7 +25,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - selfhosted.claudecode.dev
+  - claude.cloudeng.ps
   resources:
   - clauderunners/status
   verbs:

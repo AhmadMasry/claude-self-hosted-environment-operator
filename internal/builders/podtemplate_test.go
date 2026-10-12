@@ -334,7 +334,7 @@ func collectRules(s apiextensionsv1.JSONSchemaProps) []string {
 // The CEL rules in the CRD hard-code the reserved paths; this keeps them in
 // step with ReservedMountPaths.
 func TestReservedMountPathsMatchCRDRules(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "selfhosted.claudecode.dev_claudeenvironments.yaml"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "claude.cloudeng.ps_claudeenvironments.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}

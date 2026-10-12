@@ -2,7 +2,7 @@
 #   (umask 077 && cat > ./environment-secret)   # paste, Enter, Ctrl-D
 #   kubectl -n claude-runners create secret generic claude-env-secret --from-file=environment-secret=./environment-secret
 #   rm ./environment-secret
-apiVersion: selfhosted.claudecode.dev/v1alpha1
+apiVersion: claude.cloudeng.ps/v1alpha1
 kind: ClaudeEnvironment
 metadata:
   name: platform

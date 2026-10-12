@@ -76,7 +76,7 @@ ClaudeRunners are created by the hook, never by users. Phases: `Pending`, `Runni
 | `EnvironmentMismatch` | The ClaudeRunner is not controlled by the on-demand ClaudeEnvironment its `environmentRef` names; no pod is created |
 
 The JWT is mounted at `/etc/claude/environment-secret`, the same volume path as in fixed mode. The
-finalizer `selfhosted.claudecode.dev/runner-pod` makes deletion remove the pod first.
+finalizer `claude.cloudeng.ps/runner-pod` makes deletion remove the pod first.
 `runnerTTLSecondsAfterFinished` (default 300) deletes a finished ClaudeRunner after that many seconds.
 
     kubectl get crun -A     # columns: Phase, Session, Pod, Age
@@ -97,10 +97,10 @@ the authorizer allows that user to `get` `claudeenvironments/<env>` in that name
 orchestrator Role grants. For such an identity:
 
 - Secrets (CREATE, UPDATE, DELETE): the name must end in `-work-order` and the label
-  `selfhosted.claudecode.dev/environment` must equal `<env>`, on the new object for CREATE and UPDATE and on
+  `claude.cloudeng.ps/environment` must equal `<env>`, on the new object for CREATE and UPDATE and on
   the old object for UPDATE and DELETE. Each orchestrator can only touch its own environment's work orders.
 - ClaudeRunners (CREATE): the controller owner must be the ClaudeEnvironment `<env>`
-  (`selfhosted.claudecode.dev/v1alpha1`), `spec.environmentRef.name` must be `<env>`, and
+  (`claude.cloudeng.ps/v1alpha1`), `spec.environmentRef.name` must be `<env>`, and
   `spec.workOrderSecretRef.name` must be the runner's name plus `-work-order`.
 
 On older clusters remove `../admission` from `config/default/kustomization.yaml`, or install the chart with
@@ -136,5 +136,5 @@ the PodMonitor.
 Optional OTLP tracing. The manager takes `--tracing-endpoint` (default `OTEL_EXPORTER_OTLP_ENDPOINT`) and
 `--tracing-sample-ratio` (default 0.1). The hook reads `OTEL_EXPORTER_OTLP_ENDPOINT` from the orchestrator
 container environment, which you set through `onDemand.orchestrator.env`, and samples every spawn. The
-trace continues into the ClaudeRunner reconcile through the `selfhosted.claudecode.dev/traceparent`
+trace continues into the ClaudeRunner reconcile through the `claude.cloudeng.ps/traceparent`
 annotation on the ClaudeRunner.

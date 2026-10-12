@@ -1,4 +1,4 @@
-apiVersion: selfhosted.claudecode.dev/v1alpha1
+apiVersion: claude.cloudeng.ps/v1alpha1
 kind: ClaudeEnvironment
 metadata:
   name: platform

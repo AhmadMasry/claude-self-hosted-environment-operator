@@ -3,7 +3,7 @@
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
 cliVersion: 4.16.0
-domain: claudecode.dev
+domain: cloudeng.ps
 layout:
 - go.kubebuilder.io/v4
 plugins:
@@ -17,8 +17,8 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: claudecode.dev
-  group: selfhosted
+  domain: cloudeng.ps
+  group: claude
   kind: ClaudeEnvironment
   path: github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1
   version: v1alpha1
@@ -26,8 +26,8 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: claudecode.dev
-  group: selfhosted
+  domain: cloudeng.ps
+  group: claude
   kind: ClaudeRunner
   path: github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1
   version: v1alpha1

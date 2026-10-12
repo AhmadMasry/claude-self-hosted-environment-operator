@@ -1,7 +1,7 @@
 # On-demand mode: the orchestrator holds the environment secret and spawns one
 # runner pod per session with a single-use work order. Requires the Secret
 # from examples/fixed-fleet.yaml's comment and the namespace from examples/namespace.yaml.
-apiVersion: selfhosted.claudecode.dev/v1alpha1
+apiVersion: claude.cloudeng.ps/v1alpha1
 kind: ClaudeEnvironment
 metadata:
   name: platform

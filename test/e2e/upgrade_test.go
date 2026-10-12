@@ -22,6 +22,7 @@ package e2e
 import (
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -33,6 +34,20 @@ import (
 
 // upgradeNamespace matches the namespace hard-coded in the fixed-fleet testdata.
 const upgradeNamespace = e2eNamespace
+
+// currentGroup is the API group this revision serves. The previous revision
+// may serve another one (the group was renamed before the first release);
+// objects created under it are outside the new manager's scope.
+const currentGroup = "claude.cloudeng.ps"
+
+// installerGroup reads the ClaudeEnvironment CRD group out of an installer.
+func installerGroup(installer string) string {
+	b, err := os.ReadFile(installer)
+	Expect(err).NotTo(HaveOccurred())
+	m := regexp.MustCompile(`name: claudeenvironments\.([a-z0-9.-]+)`).FindSubmatch(b)
+	Expect(m).NotTo(BeNil(), "no ClaudeEnvironment CRD in %s", installer)
+	return string(m[1])
+}
 
 const (
 	odOrchestrator = "e2e-od-orchestrator"
@@ -56,7 +71,44 @@ func upgradeSpecs() {
 	// work is on master. The specs must hold both when it predates the
 	// reserved-path rule and the hook timeout variable and when it already
 	// carries them, so BeforeAll records which case applies.
-	var previousRejectsInvalid, previousHasHookTimeoutEnv bool
+	var previousRejectsInvalid, previousHasHookTimeoutEnv, sameGroup bool
+
+	// createEnvironments creates the fixed-fleet and on-demand environments
+	// from testdata and waits for both to be Ready under whichever manager is
+	// installed. It records whether the orchestrator template carries the
+	// hook timeout variable.
+	createEnvironments := func() {
+		By("creating a namespace and a fixed-fleet environment")
+		_, _ = utils.Run(exec.Command("kubectl", "create", "ns", upgradeNamespace))
+		_, err := utils.Run(exec.Command("kubectl", "label", "ns", upgradeNamespace, "pod-security.kubernetes.io/enforce=restricted", "--overwrite"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = utils.Run(exec.Command("kubectl", "create", "secret", "generic", "-n", upgradeNamespace,
+			"claude-env-secret", "--from-literal=environment-secret=ccenvkey_e2e"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = utils.Run(exec.Command("kubectl", "apply", "-n", upgradeNamespace, "-f", testdataPath("fixed-fleet-configmaps.yaml")))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = utils.Run(exec.Command("kubectl", "apply", "-n", upgradeNamespace, "-f", testdataPath("fixed-fleet-stub.yaml")))
+		Expect(err).NotTo(HaveOccurred())
+		Eventually(func(g Gomega) {
+			out, err := utils.Run(exec.Command("kubectl", "get", "claudeenvironment", "e2e", "-n", upgradeNamespace, "-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}"))
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(strings.TrimSpace(out)).To(Equal("True"))
+		}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+		By("creating an on-demand environment")
+		_, _ = utils.Run(exec.Command("kubectl", "create", "ns", odNamespace))
+		_, err = utils.Run(exec.Command("kubectl", "label", "ns", odNamespace,
+			"pod-security.kubernetes.io/enforce=restricted", "pod-security.kubernetes.io/enforce-version=latest", "--overwrite"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = kubectlOD("create", "secret", "generic", "claude-env-secret", "--from-literal=environment-secret=ccenvkey_e2e")
+		Expect(err).NotTo(HaveOccurred())
+		_, err = utils.Run(exec.Command("kubectl", "apply", "-f", testdataPath("on-demand-stub.yaml")))
+		Expect(err).NotTo(HaveOccurred())
+		Eventually(odReady, 3*time.Minute, 5*time.Second).Should(Succeed())
+		out, err := kubectlOD("get", "deploy", odOrchestrator, "-o", "jsonpath={.spec.template.spec.containers[0].env[*].name}")
+		Expect(err).NotTo(HaveOccurred())
+		previousHasHookTimeoutEnv = strings.Contains(out, hookTimeoutEnv)
+	}
 
 	Context("Upgrade from the previous revision", func() {
 		BeforeAll(func() {
@@ -72,10 +124,15 @@ func upgradeSpecs() {
 			cmd = exec.Command("kubectl", "rollout", "status", "-n", namespace, "deployment/claude-selfhosted-operator-controller-manager", "--timeout=120s")
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
-			By("creating a namespace and environment under the previous revision")
+			previousGroup := installerGroup(fromInstaller)
+			sameGroup = previousGroup == currentGroup
+			if !sameGroup {
+				By("previous revision serves API group " + previousGroup + ", this one serves " + currentGroup +
+					": objects under the previous group are outside the new manager's scope, so the upgrade asserts that the current installer applies over the previous one and fresh environments become Ready")
+				previousRejectsInvalid = true
+				return
+			}
 			_, _ = utils.Run(exec.Command("kubectl", "create", "ns", upgradeNamespace))
-			_, err = utils.Run(exec.Command("kubectl", "label", "ns", upgradeNamespace, "pod-security.kubernetes.io/enforce=restricted", "--overwrite"))
-			Expect(err).NotTo(HaveOccurred())
 			_, err = utils.Run(exec.Command("kubectl", "apply", "--dry-run=server", "-n", upgradeNamespace, "-f", testdataPath("invalid-env.yaml")))
 			previousRejectsInvalid = err != nil
 			if previousRejectsInvalid {
@@ -84,32 +141,7 @@ func upgradeSpecs() {
 			} else {
 				By("previous revision accepts a reserved-path volumeMount; asserting the accept-to-reject transition")
 			}
-			_, err = utils.Run(exec.Command("kubectl", "create", "secret", "generic", "-n", upgradeNamespace,
-				"claude-env-secret", "--from-literal=environment-secret=ccenvkey_e2e"))
-			Expect(err).NotTo(HaveOccurred())
-			_, err = utils.Run(exec.Command("kubectl", "apply", "-n", upgradeNamespace, "-f", testdataPath("fixed-fleet-configmaps.yaml")))
-			Expect(err).NotTo(HaveOccurred())
-			_, err = utils.Run(exec.Command("kubectl", "apply", "-n", upgradeNamespace, "-f", testdataPath("fixed-fleet-stub.yaml")))
-			Expect(err).NotTo(HaveOccurred())
-			Eventually(func(g Gomega) {
-				out, err := utils.Run(exec.Command("kubectl", "get", "claudeenvironment", "e2e", "-n", upgradeNamespace, "-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}"))
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(strings.TrimSpace(out)).To(Equal("True"))
-			}, 3*time.Minute, 5*time.Second).Should(Succeed())
-
-			By("creating an on-demand environment under the previous revision")
-			_, _ = utils.Run(exec.Command("kubectl", "create", "ns", odNamespace))
-			_, err = utils.Run(exec.Command("kubectl", "label", "ns", odNamespace,
-				"pod-security.kubernetes.io/enforce=restricted", "pod-security.kubernetes.io/enforce-version=latest", "--overwrite"))
-			Expect(err).NotTo(HaveOccurred())
-			_, err = kubectlOD("create", "secret", "generic", "claude-env-secret", "--from-literal=environment-secret=ccenvkey_e2e")
-			Expect(err).NotTo(HaveOccurred())
-			_, err = utils.Run(exec.Command("kubectl", "apply", "-f", testdataPath("on-demand-stub.yaml")))
-			Expect(err).NotTo(HaveOccurred())
-			Eventually(odReady, 3*time.Minute, 5*time.Second).Should(Succeed())
-			out, err := kubectlOD("get", "deploy", odOrchestrator, "-o", "jsonpath={.spec.template.spec.containers[0].env[*].name}")
-			Expect(err).NotTo(HaveOccurred())
-			previousHasHookTimeoutEnv = strings.Contains(out, hookTimeoutEnv)
+			createEnvironments()
 			if previousHasHookTimeoutEnv {
 				By("previous orchestrator template already carries the hook timeout variable; asserting only the post-upgrade state")
 			} else {
@@ -140,9 +172,15 @@ func upgradeSpecs() {
 			_, err = utils.Run(exec.Command("kubectl", "rollout", "status", "-n", namespace, "deployment/claude-selfhosted-operator-controller-manager", "--timeout=120s"))
 			Expect(err).NotTo(HaveOccurred())
 			By("asserting the CRDs carry the current schema and CEL rules")
-			out, err := utils.Run(exec.Command("kubectl", "get", "crd", "claudeenvironments.selfhosted.claudecode.dev", "-o", "jsonpath={.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.runner.x-kubernetes-validations}"))
+			out, err := utils.Run(exec.Command("kubectl", "get", "crd", "claudeenvironments.claude.cloudeng.ps", "-o", "jsonpath={.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.runner.x-kubernetes-validations}"))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(out).To(ContainSubstring("baseDir"), "the runner CEL rules from this revision must be present after upgrade")
+			if !sameGroup {
+				By("the previous group's CRDs stay installed and untouched; creating environments under the current group")
+				_, err = utils.Run(exec.Command("kubectl", "get", "crd", "claudeenvironments."+installerGroup(fromInstaller)))
+				Expect(err).NotTo(HaveOccurred())
+				createEnvironments()
+			}
 			By("asserting the runner Deployment converges under the new manager")
 			Eventually(func(g Gomega) {
 				out, err := utils.Run(exec.Command("kubectl", "get", "deployment", deployName, "-n", upgradeNamespace,
@@ -154,7 +192,7 @@ func upgradeSpecs() {
 				g.Expect(f[2]).To(Equal(f[4]), "not all replicas updated")
 				g.Expect(f[3]).To(Equal(f[4]), "not all replicas ready")
 			}, 3*time.Minute, 5*time.Second).Should(Succeed())
-			By("asserting the pre-existing environment stays Ready and valid")
+			By("asserting the environment stays Ready and valid")
 			Consistently(func(g Gomega) {
 				out, err := utils.Run(exec.Command("kubectl", "get", "claudeenvironment", "e2e", "-n", upgradeNamespace, "-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}"))
 				g.Expect(err).NotTo(HaveOccurred())
