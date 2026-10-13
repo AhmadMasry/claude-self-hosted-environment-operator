@@ -166,3 +166,6 @@ jobs:
             out/*.tgz
             sbom.spdx.json
           generate_release_notes: true
+          # A pre-release version (vX.Y.Z-rc.N) gets no floating tag and must
+          # not become the repository's "latest" release.
+          prerelease: ${{ steps.ver.outputs.floating == 'false' }}
