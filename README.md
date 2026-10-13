@@ -13,8 +13,8 @@ Every pod meets the Restricted Pod Security Standard by default. Give each
 on-demand environment its own namespace: its orchestrator can create
 work-order Secrets there.
 
-Status: pre-release. The API is `v1alpha1` and the API group is provisional
-until the first tagged release.
+Status: pre-release. The API is `claude.cloudeng.ps/v1alpha1`; see
+[API stability](#api-stability) for what that promises.
 
 Install: the kustomize installer (`install.yaml`, attached to each GitHub
 release) or the Helm chart (`oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator`).
@@ -132,6 +132,25 @@ See [hardening](docs/hardening.md) for Anthropic's checklist mapped to the opera
     make lint
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [testing](docs/testing.md).
+
+## API stability
+
+The CRDs follow the [Kubernetes API conventions](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md)
+and [deprecation policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/).
+
+- **Group.** `claude.cloudeng.ps` is fixed. Versions change; the group does not.
+- **`v1alpha1`, the current version.** The schema may change incompatibly between
+  releases. Every such change is listed under "API" in the [changelog](CHANGELOG.md)
+  of the release that ships it, with the migration it needs. After 0.1.0 such changes
+  are kept to a minimum; new fields are added as optional.
+- **Beta.** Once the schema stops moving, `v1beta1` is served alongside `v1alpha1`
+  with a conversion webhook and becomes the storage version. `v1alpha1` is then
+  deprecated and stops being served no sooner than the policy's notice period for
+  beta APIs (nine months or three minor releases, whichever is longer).
+- **Status.** Only the operator writes `status`, through the status subresource.
+  Conditions are `metav1.Condition` values; `Ready`, `Progressing` and `Degraded`
+  are stable names, and their `reason` values are documented in
+  [troubleshooting](TROUBLESHOOTING.md).
 
 ## Learn more
 
