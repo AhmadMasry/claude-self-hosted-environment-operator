@@ -152,14 +152,68 @@ fi
 
 grep -q '^admissionPolicy:' "$chart/values.yaml" || cat >> "$chart/values.yaml" <<'EOV'
 
-# ValidatingAdmissionPolicy confining each orchestrator ServiceAccount to its
-# own work orders. Requires Kubernetes 1.30 or later; disable on older clusters.
 admissionPolicy:
+  # -- Install the ValidatingAdmissionPolicy that confines each on-demand orchestrator
+  # ServiceAccount to its own work orders. Needs Kubernetes 1.30 or later; set to
+  # false on older clusters.
   enabled: true
 
-# Manager flags surfaced as values.
-watchNamespaces: ""   # comma-separated; empty watches all namespaces
+# -- Namespaces the manager watches, comma-separated; empty watches all namespaces
+# (manager flag --watch-namespaces).
+watchNamespaces: ""
 tracing:
-  endpoint: ""        # OTLP gRPC endpoint; empty falls back to $OTEL_EXPORTER_OTLP_ENDPOINT, else off
+  # -- OTLP gRPC endpoint for traces; empty falls back to $OTEL_EXPORTER_OTLP_ENDPOINT,
+  # and tracing stays off when neither is set (manager flag --tracing-endpoint).
+  endpoint: ""
+  # -- Fraction of root spans sampled; the manager flag is tracing-sample-ratio.
   sampleRatio: 0.1
 EOV
+
+# Chart metadata the plugin leaves generic: description, home, sources,
+# maintainers and keywords, read by Artifact Hub and the GHCR package page.
+chart_meta() {
+  sed -i.bak \
+    -e 's|^description: .*|description: Runs Claude Code self-hosted environments on Kubernetes as fixed or on-demand runner fleets|' \
+    "$chart/Chart.yaml" && rm -f "$chart/Chart.yaml.bak"
+  grep -q '^home:' "$chart/Chart.yaml" || cat >> "$chart/Chart.yaml" <<'EOM'
+
+home: https://github.com/AhmadMasry/claude-self-hosted-environment-operator
+sources:
+  - https://github.com/AhmadMasry/claude-self-hosted-environment-operator
+maintainers:
+  - name: Ahmad Al-Masry
+    url: https://github.com/AhmadMasry
+EOM
+  grep -q '  - claude-code' "$chart/Chart.yaml" || sed -i.bak \
+    -e 's|^  - operator$|  - operator\n  - claude\n  - claude-code\n  - anthropic\n  - self-hosted\n  - ai-agents|' \
+    "$chart/Chart.yaml" && rm -f "$chart/Chart.yaml.bak"
+}
+chart_meta
+
+# The plugin comments values with "## text" blocks; helm-docs reads "# -- text"
+# (continuation lines "# text"). Convert each block that precedes a value, and
+# keep blocks that precede a commented-out example or a blank line as plain
+# comments. Idempotent: lines already in "# --" form are left alone.
+awk '
+  function emit(desc,    i) {
+    for (i = 1; i <= n; i++) print ind (i == 1 && desc ? "# -- " : "# ") buf[i]
+    n = 0
+  }
+  /^[ \t]*##([ \t]|$)/ || /^[ \t]*# [A-Z]/ {
+    # "## text" blocks, and single-hash prose ("# Capitalised text", never a
+    # commented-out key, which is lower-case).
+    match($0, /^[ \t]*/); ind = substr($0, 1, RLENGTH)
+    t = $0; sub(/^[ \t]*##?[ \t]?/, "", t)
+    if (t != "") buf[++n] = t
+    next
+  }
+  {
+    # A description is attached only to a leaf value; a block before a parent
+    # key (nothing after the colon), a commented-out example or a blank line
+    # stays a plain comment, or helm-docs would print the whole object as the
+    # default of the parent.
+    if (n > 0) emit(!($0 ~ /^[ \t]*#/ || $0 ~ /^[ \t]*$/ || $0 ~ /^[ \t]*[A-Za-z0-9_.-]+:[ \t]*$/))
+    print
+  }
+  END { if (n > 0) emit(0) }
+' "$chart/values.yaml" > "$chart/values.yaml.tmp" && mv "$chart/values.yaml.tmp" "$chart/values.yaml"

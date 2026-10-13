@@ -41,6 +41,19 @@ const (
 	healthzURLPath       = "/healthz"
 )
 
+func TestOrchestratorDeploymentUserInitContainersFollowTheHookInstaller(t *testing.T) {
+	env := onDemandEnv()
+	env.Spec.OnDemand.Orchestrator.PodTemplate.InitContainers = []selfhostedv1alpha1.InitContainer{{Name: testPrepName, Image: testPrepImage}}
+	ics := OrchestratorDeployment(env, "h", "example.com/op:1").Spec.Template.Spec.InitContainers
+	if len(ics) != 2 || ics[0].Name != HookInitContainerName || ics[1].Name != testPrepName {
+		t.Fatalf("init containers = %+v", ics)
+	}
+	sc := ics[1].SecurityContext
+	if sc == nil || *sc.AllowPrivilegeEscalation || !*sc.ReadOnlyRootFilesystem || sc.Capabilities.Drop[0] != capabilityAll {
+		t.Fatalf("user init container must carry the operator's security context: %+v", sc)
+	}
+}
+
 func TestOrchestratorRBAC(t *testing.T) {
 	env := onDemandEnv()
 	sa := OrchestratorServiceAccount(env)

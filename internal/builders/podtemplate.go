@@ -41,6 +41,9 @@ const (
 	volHostConfig        = "host-config"
 )
 
+// capabilityAll is dropped from every container the operator builds.
+const capabilityAll corev1.Capability = "ALL"
+
 // ReservedMountPaths are the paths the operator mounts onto; users may not
 // mount over them or set baseDir to them.
 var ReservedMountPaths = []string{SecretMountPath, HomeMountPath, TmpMountPath}
@@ -206,7 +209,7 @@ func RunnerPodTemplate(in RunnerPodInput) corev1.PodTemplateSpec {
 		SecurityContext: &corev1.SecurityContext{
 			AllowPrivilegeEscalation: new(false),
 			ReadOnlyRootFilesystem:   new(true),
-			Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+			Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{capabilityAll}},
 		},
 	}
 
@@ -218,6 +221,7 @@ func RunnerPodTemplate(in RunnerPodInput) corev1.PodTemplateSpec {
 	return corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: annotations},
 		Spec: corev1.PodSpec{
+			InitContainers:                InitContainers(pt.InitContainers),
 			Containers:                    []corev1.Container{container},
 			Volumes:                       volumes,
 			RestartPolicy:                 in.RestartPolicy,
@@ -235,6 +239,36 @@ func RunnerPodTemplate(in RunnerPodInput) corev1.PodTemplateSpec {
 			SecurityContext:               podSC,
 		},
 	}
+}
+
+// InitContainers turns the user's init containers into pod containers with
+// the operator's security context: the same one the main containers get.
+func InitContainers(items []selfhostedv1alpha1.InitContainer) []corev1.Container {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]corev1.Container, 0, len(items))
+	for _, ic := range items {
+		out = append(out, corev1.Container{
+			Name:            ic.Name,
+			Image:           ic.Image,
+			ImagePullPolicy: ic.ImagePullPolicy,
+			Command:         ic.Command,
+			Args:            ic.Args,
+			WorkingDir:      ic.WorkingDir,
+			Env:             ic.Env,
+			EnvFrom:         ic.EnvFrom,
+			VolumeMounts:    ic.VolumeMounts,
+			Resources:       ic.Resources,
+			RestartPolicy:   ic.RestartPolicy,
+			SecurityContext: &corev1.SecurityContext{
+				AllowPrivilegeEscalation: new(false),
+				ReadOnlyRootFilesystem:   new(true),
+				Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{capabilityAll}},
+			},
+		})
+	}
+	return out
 }
 
 func configMapVolume(name, cmName string, mode int32) corev1.Volume {

@@ -20,5 +20,13 @@ spec:
     podTemplate:
       resources:
         requests: {cpu: 10m, memory: 32Mi}
+      # An init container under the same Restricted profile; it writes into the
+      # operator's tmp volume, which the runner container mounts at /tmp.
+      initContainers:
+        - name: prepare
+          image: example.com/claude-stub-runner:e2e
+          command: ["/stubrunner", "init", "/tmp/init-ran"]
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
   fixed:
     replicas: 2

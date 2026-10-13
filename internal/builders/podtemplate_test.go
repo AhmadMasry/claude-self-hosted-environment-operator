@@ -58,6 +58,8 @@ const (
 	testCacheName      = "cache"
 	testHealthPortName = "health"
 	testHostConfigName = "cfg"
+	testPrepImage      = "example.com/prep:1"
+	testPrepName       = "prepare"
 	testSettingsKey    = "settings.json"
 )
 
@@ -221,6 +223,39 @@ func TestHostConfigKeys(t *testing.T) {
 	got := HostConfigKeys(env, []*corev1.ConfigMap{other, nil, cfg})
 	if want := []string{"a.bin", "b.sh", testSettingsKey}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("keys = %v, want %v", got, want)
+	}
+}
+
+func TestRunnerPodTemplateInitContainers(t *testing.T) {
+	env := testEnv()
+	always := corev1.ContainerRestartPolicyAlways
+	env.Spec.Runner.PodTemplate.InitContainers = []selfhostedv1alpha1.InitContainer{
+		{Name: testPrepName, Image: testPrepImage, Command: []string{"/prep"}, Args: []string{"--out", "/tmp/prepared"},
+			Env: []corev1.EnvVar{{Name: "A", Value: "1"}}, VolumeMounts: []corev1.VolumeMount{{Name: volTmp, MountPath: TmpMountPath}}},
+		{Name: "sidecar", Image: "example.com/side:1", RestartPolicy: &always},
+	}
+	tmpl := RunnerPodTemplate(secretInput(env))
+	ics := tmpl.Spec.InitContainers
+	if len(ics) != 2 || ics[0].Name != testPrepName || ics[1].Name != "sidecar" {
+		t.Fatalf("init containers = %+v", ics)
+	}
+	p := ics[0]
+	if p.Image != testPrepImage || !reflect.DeepEqual(p.Command, []string{"/prep"}) || !reflect.DeepEqual(p.Args, []string{"--out", "/tmp/prepared"}) ||
+		len(p.Env) != 1 || len(p.VolumeMounts) != 1 || p.VolumeMounts[0].Name != volTmp {
+		t.Fatalf("user fields not kept: %+v", p)
+	}
+	for _, ic := range ics {
+		sc := ic.SecurityContext
+		if sc == nil || sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation || sc.ReadOnlyRootFilesystem == nil || !*sc.ReadOnlyRootFilesystem ||
+			sc.Capabilities == nil || len(sc.Capabilities.Drop) != 1 || sc.Capabilities.Drop[0] != capabilityAll {
+			t.Fatalf("%s must carry the operator's security context: %+v", ic.Name, sc)
+		}
+	}
+	if ics[1].RestartPolicy == nil || *ics[1].RestartPolicy != always {
+		t.Fatal("sidecar restart policy must be kept")
+	}
+	if got := RunnerPodTemplate(secretInput(testEnv())).Spec.InitContainers; got != nil {
+		t.Fatalf("no init containers without any configured, got %+v", got)
 	}
 }
 

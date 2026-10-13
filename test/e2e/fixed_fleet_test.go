@@ -90,6 +90,12 @@ func fixedFleetSpecs() {
 				g.Expect(strings.Fields(out)).To(Equal([]string{"Running", "Running"}))
 			}, time.Minute, 2*time.Second).Should(Succeed())
 
+			By("checking the init container ran to completion under the Restricted profile")
+			out, err = utils.Run(exec.Command("kubectl", "-n", e2eNamespace, "get", "pods",
+				"-l", "claude.cloudeng.ps/environment=e2e", "-o", "jsonpath={.items[*].status.initContainerStatuses[?(@.name=='prepare')].state.terminated.exitCode}"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.Fields(out)).To(Equal([]string{"0", "0"}))
+
 			By("checking the egress NetworkPolicy exists (shape only; enforcement is not asserted)")
 			out, err = utils.Run(exec.Command("kubectl", "-n", e2eNamespace, "get", "networkpolicy", "e2e-egress",
 				"-o", "jsonpath={.spec.policyTypes} {.spec.egress[1].to[0].ipBlock.cidr}"))

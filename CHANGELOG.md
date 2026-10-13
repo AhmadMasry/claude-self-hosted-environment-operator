@@ -11,6 +11,9 @@ All notable changes to this project are recorded here. The format follows
   `spec.fixed` (a Deployment, or a StatefulSet with `persistentWorkspace`) and `spec.onDemand` (an
   orchestrator that spawns one runner pod per session). Runner settings map onto the
   `claude self-hosted-runner` flags.
+- `podTemplate.initContainers` on `spec.runner` and `spec.onDemand.orchestrator`: a curated init
+  container (name, image, command, args, env, envFrom, volumeMounts, resources, `restartPolicy: Always`
+  for sidecars) that the operator hardens like its own containers.
 - `ClaudeRunner` (short name `crun`), created by the spawn hook for each on-demand session; phases
   `Pending`, `Running`, `Succeeded`, `Failed`.
 - `podTemplate` exposes only fields that keep pods within the Restricted Pod Security Standard.

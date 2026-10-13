@@ -13,18 +13,20 @@ Every pod meets the Restricted Pod Security Standard by default. Give each
 on-demand environment its own namespace: its orchestrator can create
 work-order Secrets there.
 
-Status: pre-release, no tagged release yet. The API is `claude.cloudeng.ps/v1alpha1`
-and may still change; see [API stability](#api-stability) for what that promises.
+Status: pre-release. The API is `claude.cloudeng.ps/v1alpha1` and may still change; see
+[API stability](#api-stability) for what that promises.
 Every change runs through unit, envtest, kind e2e and upgrade e2e suites in CI, and a
 manual [real-environment test](docs/testing.md#real-environment-test) registers with
 Anthropic's control plane and routes a real session through the operator; see
 [What a run looks like](#what-a-run-looks-like).
 
-Install: the kustomize installer (`install.yaml`, attached to each GitHub
-release) or the Helm chart (`oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator`).
-No release has been tagged yet.
+Install: the Helm chart (`oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator`, values in its
+[README](dist/chart/README.md)) or the kustomize installer attached to each
+[release](https://github.com/AhmadMasry/claude-self-hosted-environment-operator/releases); the commands are in
+the [quickstart](#quickstart).
 
 Docs: [quickstart](#quickstart) below, [on-demand mode](docs/on-demand.md),
+[customization](docs/customization.md) (entrypoint, init containers, wrapper script, lifecycle hooks),
 [hardening](docs/hardening.md), [metrics](docs/metrics.md),
 [upgrade](docs/upgrade.md), [troubleshooting](TROUBLESHOOTING.md),
 [testing](docs/testing.md), [releasing](docs/release.md),
@@ -32,12 +34,16 @@ Docs: [quickstart](#quickstart) below, [on-demand mode](docs/on-demand.md),
 
 ## What a run looks like
 
-Trimmed output of the real-environment test on 2026-10-12 (session ids are real, the
-pool id is masked by CI): the operator deploys, an on-demand environment registers with
-Anthropic and reports `Ready`, its egress policies exist, a session started with
-`claude -p --environment` runs on a runner pod the orchestrator spawned, the Stop hook
-and the wrapper script report back, the post-session hook runs, and the runner is
-garbage-collected.
+The real-environment test on 2026-10-12 (session ids are real, the pool id is masked by CI): the
+operator deploys, an on-demand environment registers with Anthropic and reports `Ready`, its egress
+policies exist, a session started with `claude -p --environment` runs on a runner pod the orchestrator
+spawned, the Stop hook and the wrapper script report back, the post-session hook runs, and the runner
+is garbage-collected.
+
+![Animated transcript of the real-environment test](docs/images/real-e2e-run.svg)
+
+<details>
+<summary>The same transcript as text</summary>
 
 ```text
 == operator ready
@@ -63,6 +69,11 @@ clauderunner.claude.cloudeng.ps/68c7665b-a8bc-59d7-834d-5cc5ce88bccf condition m
 == real-environment test passed
 ```
 
+</details>
+
+Regenerate the image from the transcript with
+`hack/render-terminal-svg.py docs/images/real-e2e-run.txt > docs/images/real-e2e-run.svg`.
+
 ## Quickstart
 
 Anthropic publishes no runner image, so you build one. Runner pods run under the Restricted Pod Security Standard.
@@ -86,19 +97,17 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
        kubectl create namespace claude-selfhosted-operator-system
        kubectl label namespace claude-selfhosted-operator-system pod-security.kubernetes.io/enforce=restricted
        helm install claude-selfhosted-operator oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator \
-         --namespace claude-selfhosted-operator-system --version X.Y.Z
+         --namespace claude-selfhosted-operator-system
 
-   Chart values (`dist/chart/values.yaml`): `manager.image.repository` and `manager.image.tag`,
-   `manager.resources`, `rbac.namespaced`, `metrics.secure`, `certManager.enabled`, `prometheus.enabled`
-   (ServiceMonitor and PodMonitor), `admissionPolicy.enabled` (default `true`; needs Kubernetes 1.30, set
-   `false` on older clusters), `watchNamespaces`, `tracing.endpoint`, `tracing.sampleRatio` and
-   `networkPolicy.apiServerEndpoints` (API server `ip:port` list for the orchestrator egress policy; required
-   with `rbac.namespaced=true` whenever an on-demand environment enables `spec.runner.networkPolicy`). The
-   hook image (`--hook-image`) always follows `manager.image`.
+   Without `--version` Helm installs the newest stable chart; pre-releases need `--version X.Y.Z-rc.N`
+   or `--devel`. The values, their defaults and the cluster requirements (`admissionPolicy.enabled` needs
+   Kubernetes 1.30; `networkPolicy.apiServerEndpoints` is required with `rbac.namespaced=true`) are in the
+   chart's [README](dist/chart/README.md).
 
-   Or with the installer from a release (it creates and labels the namespace itself):
+   Or with the installer of the newest stable release (it creates and labels the namespace itself; a
+   pre-release's installer is under that release's assets):
 
-       kubectl apply --server-side -f https://github.com/AhmadMasry/claude-self-hosted-environment-operator/releases/download/vX.Y.Z/install.yaml
+       kubectl apply --server-side -f https://github.com/AhmadMasry/claude-self-hosted-environment-operator/releases/latest/download/install.yaml
 
    Or build the image yourself and deploy with kustomize from a checkout:
 
@@ -110,8 +119,6 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
    `OPERATOR_IMAGE`); the kustomize manifests set it automatically from `IMG`.
 
    On kind, replace `docker-push` with `kind load docker-image <your-registry>/claude-selfhosted-operator:<tag>`.
-
-   The operator watches Secrets and ConfigMaps cluster-wide unless the manager runs with `--watch-namespaces`.
 
 6. **Apply the example.** Edit `runner.image` in `examples/fixed-fleet.yaml` to your image first.
 
@@ -152,8 +159,8 @@ The list shows Mode, Ready, Replicas and Age. Conditions on `.status.conditions`
 - **Manager flags.** `--watch-namespaces` (comma-separated; empty watches all), `--log-level`
   (`debug`, `info`, `error`), `--log-format` (`json`, `text`), `--tracing-endpoint` (OTLP gRPC, default
   `$OTEL_EXPORTER_OTLP_ENDPOINT`), `--tracing-sample-ratio` (default 0.1), `--hook-image`,
-  `--apiserver-endpoints` (comma-separated `ip:port`; empty reads the `default/kubernetes` Endpoints). The `--zap-*` flags
-  are gone.
+  `--apiserver-endpoints` (comma-separated `ip:port`; empty reads the `default/kubernetes` Endpoints). The
+  chart exposes each of them as a value.
 
 ## Hardening notes
 
