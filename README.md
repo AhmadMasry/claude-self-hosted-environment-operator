@@ -13,8 +13,12 @@ Every pod meets the Restricted Pod Security Standard by default. Give each
 on-demand environment its own namespace: its orchestrator can create
 work-order Secrets there.
 
-Status: pre-release. The API is `v1alpha1` and the API group is provisional
-until the first tagged release.
+Status: pre-release, no tagged release yet. The API is `claude.cloudeng.ps/v1alpha1`
+and may still change; see [API stability](#api-stability) for what that promises.
+Every change runs through unit, envtest, kind e2e and upgrade e2e suites in CI, and a
+manual [real-environment test](docs/testing.md#real-environment-test) registers with
+Anthropic's control plane and routes a real session through the operator; see
+[What a run looks like](#what-a-run-looks-like).
 
 Install: the kustomize installer (`install.yaml`, attached to each GitHub
 release) or the Helm chart (`oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator`).
@@ -25,6 +29,39 @@ Docs: [quickstart](#quickstart) below, [on-demand mode](docs/on-demand.md),
 [upgrade](docs/upgrade.md), [troubleshooting](TROUBLESHOOTING.md),
 [testing](docs/testing.md), [releasing](docs/release.md),
 [security policy](SECURITY.md), [contributing](CONTRIBUTING.md).
+
+## What a run looks like
+
+Trimmed output of the real-environment test on 2026-10-12 (session ids are real, the
+pool id is masked by CI): the operator deploys, an on-demand environment registers with
+Anthropic and reports `Ready`, its egress policies exist, a session started with
+`claude -p --environment` runs on a runner pod the orchestrator spawned, the Stop hook
+and the wrapper script report back, the post-session hook runs, and the runner is
+garbage-collected.
+
+```text
+== operator ready
+deployment "claude-selfhosted-operator-controller-manager" successfully rolled out
+== namespace and sink
+claudeenvironment.claude.cloudeng.ps/real created
+== level 1: orchestrator connected
+claudeenvironment.claude.cloudeng.ps/real condition met
+  SecretFound=True  FleetAvailable=True (WorkloadAvailable)  Degraded=False  Ready=True
+NAME                    POD-SELECTOR                                                               AGE
+real-egress             claude.cloudeng.ps/environment=real                                        15s
+real-egress-apiserver   claude.cloudeng.ps/environment=real,claude.cloudeng.ps/role=orchestrator   15s
+== level 2: starting a session
+create: {"ok":true,"session_id":"session_014tWpziKnUXt46SYStUXCoq","title":"Operator-real-e2e-1791838407", ...}
+== level 2: runner lifecycle
+runner phase: Running
+== level 2: reply captured
+{"session_id": "session_014tWpziKnUXt46SYStUXCoq", "reply": "operator-real-e2e-1791838407", "wrapper": "ran"}
+== level 2: runner reaches Succeeded and is garbage collected
+clauderunner.claude.cloudeng.ps/68c7665b-a8bc-59d7-834d-5cc5ce88bccf condition met
+== level 2: post-session lifecycle hook ran
+{"session_id": "session_014tWpziKnUXt46SYStUXCoq", "exit_reason": "interrupted", "env_url": "set"}
+== real-environment test passed
+```
 
 ## Quickstart
 
@@ -132,6 +169,25 @@ See [hardening](docs/hardening.md) for Anthropic's checklist mapped to the opera
     make lint
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [testing](docs/testing.md).
+
+## API stability
+
+The CRDs follow the [Kubernetes API conventions](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md)
+and [deprecation policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/).
+
+- **Group.** `claude.cloudeng.ps` is fixed. Versions change; the group does not.
+- **`v1alpha1`, the current version.** The schema may change incompatibly between
+  releases. Every such change is listed under "API" in the [changelog](CHANGELOG.md)
+  of the release that ships it, with the migration it needs. After 0.1.0 such changes
+  are kept to a minimum; new fields are added as optional.
+- **Beta.** Once the schema stops moving, `v1beta1` is served alongside `v1alpha1`
+  with a conversion webhook and becomes the storage version. `v1alpha1` is then
+  deprecated and stops being served no sooner than the policy's notice period for
+  beta APIs (nine months or three minor releases, whichever is longer).
+- **Status.** Only the operator writes `status`, through the status subresource.
+  Conditions are `metav1.Condition` values; `Ready`, `Progressing` and `Degraded`
+  are stable names, and their `reason` values are documented in
+  [troubleshooting](TROUBLESHOOTING.md).
 
 ## Learn more
 
