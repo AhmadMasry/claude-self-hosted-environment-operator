@@ -1,6 +1,6 @@
 apiVersion: v2
 name: claude-selfhosted-operator
-description: A Helm chart to distribute claude-selfhosted-operator
+description: Runs Claude Code self-hosted environments on Kubernetes as fixed or on-demand runner fleets
 type: application
 
 version: 0.1.0
@@ -9,6 +9,18 @@ appVersion: "0.0.0"
 keywords:
   - kubernetes
   - operator
+  - claude
+  - claude-code
+  - anthropic
+  - self-hosted
+  - ai-agents
 
 annotations:
   kubebuilder.io/generated-by: kubebuilder
+
+home: https://github.com/AhmadMasry/claude-self-hosted-environment-operator
+sources:
+  - https://github.com/AhmadMasry/claude-self-hosted-environment-operator
+maintainers:
+  - name: Ahmad Al-Masry
+    url: https://github.com/AhmadMasry

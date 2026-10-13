@@ -203,8 +203,14 @@ CHART_IMG ?= ghcr.io/ahmadmasry/claude-self-hosted-environment-operator:0.0.0
 .PHONY: helm-chart
 helm-chart: export IMG = $(CHART_IMG)
 helm-chart: manifests build-installer kubebuilder ## Regenerate dist/chart from the kustomize installer (IMG=... sets the default image).
-	"$(KUBEBUILDER)" edit --plugins=helm/v2-alpha --force && hack/chart-postprocess.sh; \
+	"$(KUBEBUILDER)" edit --plugins=helm/v2-alpha --force && hack/chart-postprocess.sh && $(MAKE) chart-readme; \
 		status=$$?; git checkout -- config/manager/kustomization.yaml; exit $$status
+
+.PHONY: chart-readme
+chart-readme: helm-docs ## Regenerate dist/chart/README.md from hack/chart/README.md.gotmpl and the value comments.
+	cp hack/chart/README.md.gotmpl dist/chart/README.md.gotmpl
+	"$(HELM_DOCS)" --chart-search-root dist/chart --sort-values-order file --skip-version-footer; \
+		status=$$?; rm -f dist/chart/README.md.gotmpl; exit $$status
 
 .PHONY: helm-lint
 helm-lint: ## Lint the chart.
@@ -255,6 +261,7 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 KUBEBUILDER ?= $(LOCALBIN)/kubebuilder
+HELM_DOCS ?= $(LOCALBIN)/helm-docs
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
@@ -276,6 +283,7 @@ print-envtest-version: ## Print the envtest Kubernetes version (used by CI).
 
 GOLANGCI_LINT_VERSION ?= v2.13.1
 KUBEBUILDER_VERSION ?= v4.16.0
+HELM_DOCS_VERSION ?= v1.14.2
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
 $(KUSTOMIZE): $(LOCALBIN)
@@ -313,6 +321,11 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 kubebuilder: $(KUBEBUILDER) ## Download kubebuilder locally if necessary.
 $(KUBEBUILDER): $(LOCALBIN)
 	$(call go-install-tool,$(KUBEBUILDER),sigs.k8s.io/kubebuilder/v4,$(KUBEBUILDER_VERSION))
+
+.PHONY: helm-docs
+helm-docs: $(HELM_DOCS) ## Download helm-docs locally if necessary.
+$(HELM_DOCS): $(LOCALBIN)
+	$(call go-install-tool,$(HELM_DOCS),github.com/norwoodj/helm-docs/cmd/helm-docs,$(HELM_DOCS_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
