@@ -1,0 +1,34 @@
+# A wrapper script (spec.runner.wrapperScript) that runs once per session,
+# before the Claude Code binary, with the session's environment. This one
+# turns a short-lived GitHub token, delivered as a Secret file the pod mounts,
+# into git credentials for the session, then execs the real binary as the
+# product requires. Mount the Secret through podTemplate.volumes and
+# volumeMounts (see docs/customization.md); the token is readable by the
+# session, so use a short-lived, repository-scoped token and never a key that
+# can mint tokens.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: runner-wrapper
+data:
+  wrapper.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    token_file=/var/run/github/token
+    if [ -r "$token_file" ]; then
+      # git asks this helper for every github.com URL and the helper reads the
+      # file each time, so a rotated Secret takes effect on the next clone or
+      # push without restarting anything. The single quotes matter: git, not
+      # this script, expands the command substitution.
+      export GIT_CONFIG_COUNT=1
+      export GIT_CONFIG_KEY_0=credential.https://github.com.helper
+      # shellcheck disable=SC2016 # git expands it, not this script
+      export GIT_CONFIG_VALUE_0='!f() { echo username=x-access-token; echo "password=$(cat /var/run/github/token)"; }; f'
+      # Tools such as gh read GITHUB_TOKEN; this copy is a snapshot taken at
+      # session start.
+      GITHUB_TOKEN=$(cat "$token_file")
+      export GITHUB_TOKEN
+    fi
+    # Keep "$@": the control plane passes the session's prompt-file flags.
+    # exec keeps stdin (the runner's control channel) and fd 3 attached.
+    exec "$CLAUDE_RUNNER_CLAUDE_BIN" "$@"

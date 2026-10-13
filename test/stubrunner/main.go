@@ -233,5 +233,13 @@ func main() {
 	if len(os.Args) > 2 && os.Args[1] == "self-hosted-runner" && os.Args[2] == "orchestrator" {
 		os.Exit(runOrchestrator(args))
 	}
+	// "init <file>" is the e2e's init container: it writes the file and exits.
+	if len(os.Args) > 2 && os.Args[1] == "init" {
+		if err := os.WriteFile(os.Args[2], []byte("ran\n"), 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	os.Exit(runRunner(args))
 }

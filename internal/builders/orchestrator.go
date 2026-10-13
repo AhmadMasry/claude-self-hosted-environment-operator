@@ -123,7 +123,7 @@ func restrictedContainerSecurityContext() *corev1.SecurityContext {
 	return &corev1.SecurityContext{
 		AllowPrivilegeEscalation: new(false),
 		ReadOnlyRootFilesystem:   new(true),
-		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{capabilityAll}},
 	}
 }
 
@@ -256,7 +256,7 @@ func OrchestratorDeployment(env *selfhostedv1alpha1.ClaudeEnvironment, hash, hoo
 					RuntimeClassName:              pt.RuntimeClassName,
 					SchedulerName:                 pt.SchedulerName,
 					Volumes:                       orchestratorVolumes(env),
-					InitContainers:                orchestratorInitContainers(hookImage),
+					InitContainers:                append(orchestratorInitContainers(hookImage), InitContainers(pt.InitContainers)...),
 					Containers:                    orchestratorContainers(env),
 				},
 			},

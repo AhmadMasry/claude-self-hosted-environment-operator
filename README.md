@@ -26,6 +26,7 @@ Install: the Helm chart (`oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-oper
 the [quickstart](#quickstart).
 
 Docs: [quickstart](#quickstart) below, [on-demand mode](docs/on-demand.md),
+[customization](docs/customization.md) (entrypoint, init containers, wrapper script, lifecycle hooks),
 [hardening](docs/hardening.md), [metrics](docs/metrics.md),
 [upgrade](docs/upgrade.md), [troubleshooting](TROUBLESHOOTING.md),
 [testing](docs/testing.md), [releasing](docs/release.md),

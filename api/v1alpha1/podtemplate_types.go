@@ -55,6 +55,48 @@ type PodTemplate struct {
 	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+	// InitContainers run before the runner or orchestrator container, in order.
+	// Hand results over through the operator's volumes, mounted by name:
+	// "workspace", "home" and "tmp" on runner pods, "home" and "tmp" on the
+	// orchestrator.
+	// +kubebuilder:validation:MaxItems=8
+	// +optional
+	InitContainers []InitContainer `json:"initContainers,omitempty"`
+}
+
+// InitContainer is the curated subset of a container users may run before the
+// main container. The operator sets its security context: no privilege
+// escalation, all capabilities dropped, read-only root filesystem; the
+// pod-level runAsNonRoot and seccomp profile apply to it as well.
+type InitContainer struct {
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// +kubebuilder:validation:MinLength=1
+	Image string `json:"image"`
+	// +optional
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+	// +optional
+	Command []string `json:"command,omitempty"`
+	// +optional
+	Args []string `json:"args,omitempty"`
+	// +optional
+	WorkingDir string `json:"workingDir,omitempty"`
+	// +kubebuilder:validation:MaxItems=64
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	EnvFrom []corev1.EnvFromSource `json:"envFrom,omitempty"`
+	// +kubebuilder:validation:MaxItems=64
+	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+	// RestartPolicy Always turns the init container into a sidecar that keeps
+	// running next to the main container.
+	// +kubebuilder:validation:Enum=Always
+	// +optional
+	RestartPolicy *corev1.ContainerRestartPolicy `json:"restartPolicy,omitempty"`
 }
 
 // PodSecurityContext exposes only the identity fields; everything else is fixed by the operator.
