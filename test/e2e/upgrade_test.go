@@ -87,7 +87,7 @@ func upgradeSpecs() {
 		Expect(err).NotTo(HaveOccurred())
 		_, err = utils.Run(exec.Command("kubectl", "apply", "-n", upgradeNamespace, "-f", testdataPath("fixed-fleet-configmaps.yaml")))
 		Expect(err).NotTo(HaveOccurred())
-		_, err = utils.Run(exec.Command("kubectl", "apply", "-n", upgradeNamespace, "-f", testdataPath("fixed-fleet-stub.yaml")))
+		_, err = utils.Run(exec.Command("kubectl", "apply", "-n", upgradeNamespace, "-f", testdataPath("fixed-fleet-upgrade-stub.yaml")))
 		Expect(err).NotTo(HaveOccurred())
 		Eventually(func(g Gomega) {
 			out, err := utils.Run(exec.Command("kubectl", "get", "claudeenvironment", "e2e", "-n", upgradeNamespace, "-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}"))

@@ -1,0 +1,28 @@
+# Fixed-fleet environment for the upgrade e2e. It is created under the
+# previous revision, whose CRD rejects fields it does not know (strict
+# decoding), so this manifest uses only long-standing fields. New fields
+# are exercised by fixed-fleet-stub.yaml under the current revision.
+apiVersion: claude.cloudeng.ps/v1alpha1
+kind: ClaudeEnvironment
+metadata:
+  name: e2e
+  namespace: claude-e2e
+spec:
+  environmentSecretRef:
+    name: claude-env-secret
+  runner:
+    image: example.com/claude-stub-runner:e2e
+    capacity: 1
+    networkPolicy:
+      enabled: true
+      egressCIDRs: ["10.0.0.0/8"]
+    lifecycleHooks:
+      name: e2e-hooks
+    wrapperScript:
+      name: e2e-wrapper
+      key: wrap.sh
+    podTemplate:
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+  fixed:
+    replicas: 2
