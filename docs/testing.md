@@ -70,6 +70,34 @@ Items 4 and 6 exist because the three customization features reach the runner th
 whose keys are symlinks unless mounted with `subPath` (see docs/hardening.md): the test proves each one is
 honoured as mounted.
 
+### A passing run
+
+The run of 2026-10-12 (session ids are real, the pool id is masked by CI), as the script prints it:
+
+```text
+== operator ready
+deployment "claude-selfhosted-operator-controller-manager" successfully rolled out
+== namespace and sink
+claudeenvironment.claude.cloudeng.ps/real created
+== level 1: orchestrator connected
+claudeenvironment.claude.cloudeng.ps/real condition met
+  SecretFound=True  FleetAvailable=True (WorkloadAvailable)  Degraded=False  Ready=True
+NAME                    POD-SELECTOR                                                               AGE
+real-egress             claude.cloudeng.ps/environment=real                                        15s
+real-egress-apiserver   claude.cloudeng.ps/environment=real,claude.cloudeng.ps/role=orchestrator   15s
+== level 2: starting a session
+create: {"ok":true,"session_id":"session_014tWpziKnUXt46SYStUXCoq","title":"Operator-real-e2e-1791838407", ...}
+== level 2: runner lifecycle
+runner phase: Running
+== level 2: reply captured
+{"session_id": "session_014tWpziKnUXt46SYStUXCoq", "reply": "operator-real-e2e-1791838407", "wrapper": "ran"}
+== level 2: runner reaches Succeeded and is garbage collected
+clauderunner.claude.cloudeng.ps/68c7665b-a8bc-59d7-834d-5cc5ce88bccf condition met
+== level 2: post-session lifecycle hook ran
+{"session_id": "session_014tWpziKnUXt46SYStUXCoq", "exit_reason": "interrupted", "env_url": "set"}
+== real-environment test passed
+```
+
 ### How the session is started
 
 The commands come from the product docs:

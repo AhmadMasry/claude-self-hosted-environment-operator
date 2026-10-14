@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
 """Render a transcript as an animated terminal SVG for the README.
 
-Usage: hack/render-terminal-svg.py docs/images/real-e2e-run.txt > docs/images/real-e2e-run.svg
+Usage: hack/render-terminal-svg.py docs/images/user-flow.txt > docs/images/user-flow.svg
 
 Lines appear one after another (SMIL animation, which GitHub renders inline).
 Lines starting with "== " are step headings; "$ " is the prompt; a line
-containing "passed" is the final result.
+containing "passed" is the final result. The width follows the longest line.
 """
 import sys
 from xml.sax.saxutils import escape
 
 lines = open(sys.argv[1], encoding="utf-8").read().rstrip("\n").split("\n")
-width, line_h, pad_x, top = 980, 22, 18, 52
+line_h, pad_x, top = 22, 18, 52
+width = max(980, int(max(len(l) for l in lines) * 7.5) + 2 * pad_x)  # Menlo at 13px
 height = top + line_h * len(lines) + 24
 fg, dim, green, blue, bg = "#cdd6f4", "#9399b2", "#a6e3a1", "#89b4fa", "#1e1e2e"
 
-out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="13">',
+out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5">',
        f'<rect width="{width}" height="{height}" rx="10" fill="{bg}"/>',
        '<circle cx="22" cy="20" r="6" fill="#f38ba8"/><circle cx="42" cy="20" r="6" fill="#f9e2af"/><circle cx="62" cy="20" r="6" fill="#a6e3a1"/>',
-       f'<text x="{width/2}" y="25" text-anchor="middle" fill="{dim}" font-size="12">real-environment test</text>']
+       f'<text x="{width/2}" y="25" text-anchor="middle" fill="{dim}" font-size="12">a session on the operator</text>']
 t = 0.0
 for i, line in enumerate(lines):
     if line.startswith("$ "):

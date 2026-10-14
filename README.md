@@ -13,6 +13,11 @@ Every pod meets the Restricted Pod Security Standard by default. Give each
 on-demand environment its own namespace: its orchestrator can create
 work-order Secrets there.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/architecture-dark.svg">
+  <img alt="Architecture: a session started from claude.ai or the CLI is dispatched by Anthropic's control plane to runner pods the operator runs in your cluster, as a fixed Deployment or one hardened pod per session spawned by an orchestrator" src="docs/images/architecture-light.svg" width="1180">
+</picture>
+
 Status: pre-release. The API is `claude.cloudeng.ps/v1alpha1` and may still change; see
 [API stability](#api-stability) for what that promises.
 Every change runs through unit, envtest, kind e2e and upgrade e2e suites in CI, and a
@@ -34,45 +39,58 @@ Docs: [quickstart](#quickstart) below, [on-demand mode](docs/on-demand.md),
 
 ## What a run looks like
 
-The real-environment test on 2026-10-12 (session ids are real, the pool id is masked by CI): the
-operator deploys, an on-demand environment registers with Anthropic and reports `Ready`, its egress
-policies exist, a session started with `claude -p --environment` runs on a runner pod the orchestrator
-spawned, the Stop hook and the wrapper script report back, the post-session hook runs, and the runner
-is garbage-collected.
+A session on the operator, from the real-environment run of 2026-10-14 (ids are real): the environment
+registers with Anthropic and reports `Ready`, a session started from the CLI lands on a runner pod the
+orchestrator spawned for it, the runner succeeds when the session is released, and it is garbage-collected
+two minutes later. A session started in claude.ai takes the same path.
 
-![Animated transcript of the real-environment test](docs/images/real-e2e-run.svg)
+![Animated terminal: creating the environment, starting a session, the runner pod appearing, succeeding and being garbage-collected](docs/images/user-flow.svg)
 
 <details>
 <summary>The same transcript as text</summary>
 
 ```text
-== operator ready
-deployment "claude-selfhosted-operator-controller-manager" successfully rolled out
-== namespace and sink
+== create the environment (on-demand mode) and wait for it to register with Anthropic
+$ kubectl apply -f environment.yaml
 claudeenvironment.claude.cloudeng.ps/real created
-== level 1: orchestrator connected
-claudeenvironment.claude.cloudeng.ps/real condition met
-  SecretFound=True  FleetAvailable=True (WorkloadAvailable)  Degraded=False  Ready=True
-NAME                    POD-SELECTOR                                                               AGE
-real-egress             claude.cloudeng.ps/environment=real                                        15s
-real-egress-apiserver   claude.cloudeng.ps/environment=real,claude.cloudeng.ps/role=orchestrator   15s
-== level 2: starting a session
-create: {"ok":true,"session_id":"session_014tWpziKnUXt46SYStUXCoq","title":"Operator-real-e2e-1791838407", ...}
-== level 2: runner lifecycle
-runner phase: Running
-== level 2: reply captured
-{"session_id": "session_014tWpziKnUXt46SYStUXCoq", "reply": "operator-real-e2e-1791838407", "wrapper": "ran"}
-== level 2: runner reaches Succeeded and is garbage collected
-clauderunner.claude.cloudeng.ps/68c7665b-a8bc-59d7-834d-5cc5ce88bccf condition met
-== level 2: post-session lifecycle hook ran
-{"session_id": "session_014tWpziKnUXt46SYStUXCoq", "exit_reason": "interrupted", "env_url": "set"}
-== real-environment test passed
+$ kubectl get -n claude-real-e2e claudeenvironments
+NAME  MODE      READY  REPLICAS  AGE
+real  onDemand  True             15s
+== start a session on it, from claude.ai or the CLI
+$ claude -p "Reply with exactly the text: operator-real-e2e-1791997021" \
+    --environment "$CLAUDE_ENVIRONMENT_ID" --ref test/readme-visuals --output-format json
+{"ok":true,"session_id":"session_01WsFME7Xbwnr52yqsBt8VZy","title":"Operator real e2e 1791997021", ...}
+== the orchestrator spawned a runner pod for the session
+$ kubectl get -n claude-real-e2e clauderunners,pods -l claude.cloudeng.ps/environment=real
+NAME                                                                  PHASE    SESSION                           POD                                   AGE
+clauderunner.claude.cloudeng.ps/57f5899f-1a39-59bd-b130-33eaa3aa1778  Running  session_01WsFME7Xbwnr52yqsBt8VZy  57f5899f-1a39-59bd-b130-33eaa3aa1778  2s
+
+NAME                                      READY  STATUS   RESTARTS  AGE
+pod/57f5899f-1a39-59bd-b130-33eaa3aa1778  0/1    Running  0         2s
+pod/real-orchestrator-65888d966c-p2jzp    1/1    Running  0         26s
+pod/real-orchestrator-65888d966c-zmnb4    1/1    Running  0         26s
+== the session replied and was released: the runner succeeded
+$ kubectl get -n claude-real-e2e clauderunners,pods -l claude.cloudeng.ps/environment=real
+NAME                                                                  PHASE      SESSION                           POD                                   AGE
+clauderunner.claude.cloudeng.ps/57f5899f-1a39-59bd-b130-33eaa3aa1778  Succeeded  session_01WsFME7Xbwnr52yqsBt8VZy  57f5899f-1a39-59bd-b130-33eaa3aa1778  91s
+
+NAME                                      READY  STATUS     RESTARTS  AGE
+pod/57f5899f-1a39-59bd-b130-33eaa3aa1778  0/1    Completed  0         91s
+pod/real-orchestrator-65888d966c-p2jzp    1/1    Running    0         115s
+pod/real-orchestrator-65888d966c-zmnb4    1/1    Running    0         115s
+== two minutes later (runnerTTLSecondsAfterFinished): garbage-collected, only the orchestrator remains
+$ kubectl get -n claude-real-e2e clauderunners,pods -l claude.cloudeng.ps/environment=real
+NAME                                    READY  STATUS   RESTARTS  AGE
+pod/real-orchestrator-65888d966c-p2jzp  1/1    Running  0         3m56s
+pod/real-orchestrator-65888d966c-zmnb4  1/1    Running  0         3m56s
 ```
 
 </details>
 
-Regenerate the image from the transcript with
-`hack/render-terminal-svg.py docs/images/real-e2e-run.txt > docs/images/real-e2e-run.svg`.
+Regenerate the recording with `hack/render-terminal-svg.py docs/images/user-flow.txt > docs/images/user-flow.svg`
+and the architecture diagram with `hack/render-architecture-svg.py docs/images`. The transcript comes from the
+tables `hack/real-session-test.sh` prints at each step, so every run of the
+[real-environment test](docs/testing.md#real-environment-test) produces a fresh one.
 
 ## Quickstart
 
