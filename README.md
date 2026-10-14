@@ -96,15 +96,28 @@ tables `hack/real-session-test.sh` prints at each step, so every run of the
 
 Anthropic publishes no runner image, so you build one. Runner pods run under the Restricted Pod Security Standard.
 
-1. **Create an environment in claude.ai.** Enable self-hosted environments, create one, and copy its
-   environment key (see the [Claude docs](https://code.claude.com/docs/en/self-hosted-environments)).
+1. **Create the environment in claude.ai.** In admin settings, enable self-hosted environments and create
+   one; Anthropic's guide is [Self-hosted environments](https://code.claude.com/docs/en/self-hosted-environments).
+   You get two values. The *environment key* (`ccenvkey_...`) is shown once, at creation: it is what the
+   operator needs, so copy it now. The *environment id* (`ccpool_...`) is in the environment's detail dialog:
+   the operator does not use it; it is what `claude --environment <id>` takes to start a session from the
+   CLI, while claude.ai picks the environment by name.
 2. **Create the namespace** (Restricted Pod Security labels included):
 
        kubectl apply -f examples/namespace.yaml
 
-3. **Create the Secret.** Follow the commented steps at the top of
-   [`examples/fixed-fleet.yaml`](examples/fixed-fleet.yaml): the key goes in via a file with `umask 077`,
-   never into a committed manifest. The Secret key name is `environment-secret`.
+3. **Store the key in a Secret** in the environment's namespace, under the key name `environment-secret`.
+   It goes in through a file created with `umask 077`, never through a committed manifest or a shell
+   argument:
+
+       (umask 077 && cat > ./environment-secret)   # paste the key, Enter, Ctrl-D
+       kubectl -n claude-runners create secret generic claude-env-secret --from-file=environment-secret=./environment-secret
+       rm ./environment-secret
+
+   The `ClaudeEnvironment` names that Secret in `spec.environmentSecretRef.name` (step 6). The operator
+   mounts it read-only as a file and never logs its value; in on-demand mode only the orchestrator holds it.
+   To rotate the key, create a new one in claude.ai and update the Secret: the operator rolls the fleet, or
+   the orchestrator, on the change.
 4. **Build and push the runner image.** See [`examples/runner-image`](examples/runner-image/README.md):
 
        docker build --build-arg CLAUDE_CODE_VERSION=<version> -t <registry>/claude-runner:<version> examples/runner-image
@@ -138,7 +151,8 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
 
    On kind, replace `docker-push` with `kind load docker-image <your-registry>/claude-selfhosted-operator:<tag>`.
 
-6. **Apply the example.** Edit `runner.image` in `examples/fixed-fleet.yaml` to your image first.
+6. **Apply the example.** Edit `runner.image` in `examples/fixed-fleet.yaml` to your image first; its
+   `environmentSecretRef` already names the Secret from step 3.
 
        kubectl apply -f examples/hooks-configmap.yaml -f examples/fixed-fleet.yaml
 
