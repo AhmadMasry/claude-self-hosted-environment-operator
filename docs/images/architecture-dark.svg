@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="600" viewBox="0 0 1180 600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"><defs><marker id="head" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#9198a1"/></marker><marker id="tail" markerWidth="8" markerHeight="8" refX="1" refY="4" orient="auto"><path d="M8,0 L0,4 L8,8 z" fill="#9198a1"/></marker></defs><rect width="1180" height="600" fill="#0d1117"/><rect x="30" y="60" width="200" height="92" rx="8" fill="#161b22" stroke="#3d444d" stroke-width="1.2"/>
+<text x="42" y="82" font-size="13" fill="#e6edf3" font-weight="600" text-anchor="start">You</text>
+<text x="42" y="102" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">claude.ai, the Claude Code CLI</text>
+<text x="42" y="119" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">or a Claude Code session</text>
+<text x="42" y="136" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">picks the self-hosted environment</text>
+<rect x="30" y="250" width="200" height="108" rx="8" fill="#161b22" stroke="#3d444d" stroke-width="1.2"/>
+<text x="42" y="272" font-size="13" fill="#e6edf3" font-weight="600" text-anchor="start">Anthropic control plane</text>
+<text x="42" y="292" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">holds the environment and</text>
+<text x="42" y="309" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">queues its sessions; sends</text>
+<text x="42" y="326" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">a signed work order per</text>
+<text x="42" y="343" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">session to the orchestrator</text>
+<line x1="130" y1="152" x2="130" y2="250" stroke="#9198a1" stroke-width="1.4" marker-end="url(#head)"/>
+<text x="130.0" y="195.0" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="middle">start a session</text>
+<rect x="300" y="30" width="850" height="540" rx="14" fill="#0d1117" stroke="#6e7681" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="318" y="56" font-size="14" fill="#e6edf3" font-weight="600" text-anchor="start">Your Kubernetes cluster</text>
+<text x="1132" y="56" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="end">no inbound ports: every pod dials out to Anthropic</text>
+<rect x="320" y="80" width="210" height="96" rx="8" fill="#161b22" stroke="#3d444d" stroke-width="1.2"/>
+<text x="332" y="102" font-size="13" fill="#e6edf3" font-weight="600" text-anchor="start">Operator</text>
+<text x="332" y="122" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">watches ClaudeEnvironments,</text>
+<text x="332" y="139" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">builds every pod hardened,</text>
+<text x="332" y="156" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">rolls on Secret change</text>
+<rect x="600" y="80" width="250" height="96" rx="8" fill="#121d2f" stroke="#58a6ff" stroke-width="1.2"/>
+<text x="612" y="102" font-size="13" fill="#58a6ff" font-weight="600" text-anchor="start" font-family="SFMono-Regular, Menlo, Consolas, monospace">ClaudeEnvironment</text>
+<text x="612" y="122" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">mode: fixed | onDemand</text>
+<text x="612" y="139" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">runner image, environment key Secret,</text>
+<text x="612" y="156" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">hooks, wrapper, init containers, egress</text>
+<rect x="920" y="80" width="210" height="96" rx="8" fill="#161b22" stroke="#3d444d" stroke-width="1.2"/>
+<text x="932" y="102" font-size="13" fill="#e6edf3" font-weight="600" text-anchor="start">Secret</text>
+<text x="932" y="122" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">the environment key from</text>
+<text x="932" y="139" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">claude.ai, mounted read-only</text>
+<text x="932" y="156" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">as a file, never an argument</text>
+<line x1="530" y1="128" x2="600" y2="128" stroke="#9198a1" stroke-width="1.4" marker-end="url(#head)"/>
+<text x="565.0" y="120.0" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="middle">reconciles</text>
+<line x1="850" y1="128" x2="920" y2="128" stroke="#9198a1" stroke-width="1.4" marker-end="url(#head)"/>
+<text x="885.0" y="120.0" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="middle">refs</text>
+<rect x="320" y="210" width="395" height="240" rx="10" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="334" y="234" font-size="13" fill="#e6edf3" font-weight="600" text-anchor="start">Fixed fleet</text>
+<text x="334" y="252" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="start">spec.fixed.replicas, a Deployment of long-lived runners</text>
+<rect x="334" y="270" width="112" height="70" rx="8" fill="#12261e" stroke="#3fb950" stroke-width="1.2"/>
+<text x="346" y="292" font-size="13" fill="#3fb950" font-weight="600" text-anchor="start">runner pod</text>
+<text x="346" y="312" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">long-lived,</text>
+<text x="346" y="329" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">polls for work</text>
+<rect x="456" y="270" width="112" height="70" rx="8" fill="#12261e" stroke="#3fb950" stroke-width="1.2"/>
+<text x="468" y="292" font-size="13" fill="#3fb950" font-weight="600" text-anchor="start">runner pod</text>
+<text x="468" y="312" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">long-lived,</text>
+<text x="468" y="329" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">polls for work</text>
+<rect x="578" y="270" width="112" height="70" rx="8" fill="#12261e" stroke="#3fb950" stroke-width="1.2"/>
+<text x="590" y="292" font-size="13" fill="#3fb950" font-weight="600" text-anchor="start">runner pod</text>
+<text x="590" y="312" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">long-lived,</text>
+<text x="590" y="329" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">polls for work</text>
+<text x="334" y="370" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="start">You size the capacity. The operator rolls the</text>
+<text x="334" y="387" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="start">Deployment when the Secret or the spec changes,</text>
+<text x="334" y="404" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="start">with a grace period for sessions in flight.</text>
+<rect x="735" y="210" width="395" height="240" rx="10" fill="#0d1117" stroke="#3d444d" stroke-width="1.2"/>
+<text x="749" y="234" font-size="13" fill="#e6edf3" font-weight="600" text-anchor="start">On-demand</text>
+<text x="749" y="252" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="start">spec.onDemand, one hardened pod per session</text>
+<rect x="749" y="270" width="150" height="70" rx="8" fill="#12261e" stroke="#3fb950" stroke-width="1.2"/>
+<text x="761" y="292" font-size="13" fill="#3fb950" font-weight="600" text-anchor="start">orchestrator pod</text>
+<text x="761" y="312" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">holds the key, runs</text>
+<text x="761" y="329" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">the spawn hook</text>
+<rect x="965" y="270" width="150" height="70" rx="8" fill="#121d2f" stroke="#58a6ff" stroke-width="1.2"/>
+<text x="977" y="292" font-size="13" fill="#58a6ff" font-weight="600" text-anchor="start" font-family="SFMono-Regular, Menlo, Consolas, monospace">ClaudeRunner</text>
+<text x="977" y="312" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">one per session,</text>
+<text x="977" y="329" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">Pending to Succeeded</text>
+<line x1="899" y1="305" x2="965" y2="305" stroke="#9198a1" stroke-width="1.4" marker-end="url(#head)"/>
+<text x="932.0" y="297.0" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="middle">spawn hook</text>
+<rect x="965" y="360" width="150" height="70" rx="8" fill="#12261e" stroke="#3fb950" stroke-width="1.2"/>
+<text x="977" y="382" font-size="13" fill="#3fb950" font-weight="600" text-anchor="start">runner pod</text>
+<text x="977" y="402" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">work-order JWT only,</text>
+<text x="977" y="419" font-size="12" fill="#9198a1" font-weight="normal" text-anchor="start">garbage-collected after</text>
+<line x1="1040" y1="340" x2="1040" y2="360" stroke="#9198a1" stroke-width="1.4" marker-end="url(#head)"/>
+<text x="749" y="370" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="start">The operator starts the pod only for</text>
+<text x="749" y="387" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="start">its own environment; an admission</text>
+<text x="749" y="404" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="start">policy confines the orchestrator to</text>
+<text x="749" y="421" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="start">its own work orders.</text>
+<line x1="230" y1="300" x2="320" y2="300" stroke="#9198a1" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#head)" marker-start="url(#tail)"/>
+<text x="275.0" y="292.0" font-size="11" fill="#9198a1" font-weight="normal" text-anchor="middle">outbound only</text>
+<rect x="320" y="470" width="810" height="90" rx="10" fill="#272115" stroke="#d29922" stroke-width="1.2"/>
+<text x="334" y="494" font-size="13" fill="#d29922" font-weight="600" text-anchor="start">Every pod the operator builds</text>
+<text x="334" y="514" font-size="11" fill="#e6edf3" font-weight="normal" text-anchor="start">Restricted Pod Security Standard: non-root, no privilege escalation, all capabilities dropped, read-only root filesystem, seccomp RuntimeDefault.</text>
+<text x="334" y="530" font-size="11" fill="#e6edf3" font-weight="normal" text-anchor="start">Optional default-deny egress NetworkPolicy with your allow-list. Prometheus metrics and OpenTelemetry traces built in.</text>
+<text x="334" y="546" font-size="11" fill="#e6edf3" font-weight="normal" text-anchor="start">Operator image signed with cosign and shipped with an SBOM.</text></svg>

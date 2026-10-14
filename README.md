@@ -13,6 +13,11 @@ Every pod meets the Restricted Pod Security Standard by default. Give each
 on-demand environment its own namespace: its orchestrator can create
 work-order Secrets there.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/architecture-dark.svg">
+  <img alt="Architecture: a session started from claude.ai or the CLI is dispatched by Anthropic's control plane to runner pods the operator runs in your cluster, as a fixed Deployment or one hardened pod per session spawned by an orchestrator" src="docs/images/architecture-light.svg" width="1180">
+</picture>
+
 Status: pre-release. The API is `claude.cloudeng.ps/v1alpha1` and may still change; see
 [API stability](#api-stability) for what that promises.
 Every change runs through unit, envtest, kind e2e and upgrade e2e suites in CI, and a
@@ -34,59 +39,85 @@ Docs: [quickstart](#quickstart) below, [on-demand mode](docs/on-demand.md),
 
 ## What a run looks like
 
-The real-environment test on 2026-10-12 (session ids are real, the pool id is masked by CI): the
-operator deploys, an on-demand environment registers with Anthropic and reports `Ready`, its egress
-policies exist, a session started with `claude -p --environment` runs on a runner pod the orchestrator
-spawned, the Stop hook and the wrapper script report back, the post-session hook runs, and the runner
-is garbage-collected.
+A session on the operator, from the real-environment run of 2026-10-14 (ids are real): the environment
+registers with Anthropic and reports `Ready`, a session started from the CLI lands on a runner pod the
+orchestrator spawned for it, the runner succeeds when the session is released, and it is garbage-collected
+two minutes later. A session started in claude.ai takes the same path.
 
-![Animated transcript of the real-environment test](docs/images/real-e2e-run.svg)
+![Animated terminal: creating the environment, starting a session, the runner pod appearing, succeeding and being garbage-collected](docs/images/user-flow.svg)
 
 <details>
 <summary>The same transcript as text</summary>
 
 ```text
-== operator ready
-deployment "claude-selfhosted-operator-controller-manager" successfully rolled out
-== namespace and sink
+== create the environment (on-demand mode) and wait for it to register with Anthropic
+$ kubectl apply -f environment.yaml
 claudeenvironment.claude.cloudeng.ps/real created
-== level 1: orchestrator connected
-claudeenvironment.claude.cloudeng.ps/real condition met
-  SecretFound=True  FleetAvailable=True (WorkloadAvailable)  Degraded=False  Ready=True
-NAME                    POD-SELECTOR                                                               AGE
-real-egress             claude.cloudeng.ps/environment=real                                        15s
-real-egress-apiserver   claude.cloudeng.ps/environment=real,claude.cloudeng.ps/role=orchestrator   15s
-== level 2: starting a session
-create: {"ok":true,"session_id":"session_014tWpziKnUXt46SYStUXCoq","title":"Operator-real-e2e-1791838407", ...}
-== level 2: runner lifecycle
-runner phase: Running
-== level 2: reply captured
-{"session_id": "session_014tWpziKnUXt46SYStUXCoq", "reply": "operator-real-e2e-1791838407", "wrapper": "ran"}
-== level 2: runner reaches Succeeded and is garbage collected
-clauderunner.claude.cloudeng.ps/68c7665b-a8bc-59d7-834d-5cc5ce88bccf condition met
-== level 2: post-session lifecycle hook ran
-{"session_id": "session_014tWpziKnUXt46SYStUXCoq", "exit_reason": "interrupted", "env_url": "set"}
-== real-environment test passed
+$ kubectl get -n claude-real-e2e claudeenvironments
+NAME  MODE      READY  REPLICAS  AGE
+real  onDemand  True             15s
+== start a session on it, from claude.ai or the CLI
+$ claude -p "Reply with exactly the text: operator-real-e2e-1791997021" \
+    --environment "$CLAUDE_ENVIRONMENT_ID" --ref test/readme-visuals --output-format json
+{"ok":true,"session_id":"session_01WsFME7Xbwnr52yqsBt8VZy","title":"Operator real e2e 1791997021", ...}
+== the orchestrator spawned a runner pod for the session
+$ kubectl get -n claude-real-e2e clauderunners,pods -l claude.cloudeng.ps/environment=real
+NAME                                                                  PHASE    SESSION                           POD                                   AGE
+clauderunner.claude.cloudeng.ps/57f5899f-1a39-59bd-b130-33eaa3aa1778  Running  session_01WsFME7Xbwnr52yqsBt8VZy  57f5899f-1a39-59bd-b130-33eaa3aa1778  2s
+
+NAME                                      READY  STATUS   RESTARTS  AGE
+pod/57f5899f-1a39-59bd-b130-33eaa3aa1778  0/1    Running  0         2s
+pod/real-orchestrator-65888d966c-p2jzp    1/1    Running  0         26s
+pod/real-orchestrator-65888d966c-zmnb4    1/1    Running  0         26s
+== the session replied and was released: the runner succeeded
+$ kubectl get -n claude-real-e2e clauderunners,pods -l claude.cloudeng.ps/environment=real
+NAME                                                                  PHASE      SESSION                           POD                                   AGE
+clauderunner.claude.cloudeng.ps/57f5899f-1a39-59bd-b130-33eaa3aa1778  Succeeded  session_01WsFME7Xbwnr52yqsBt8VZy  57f5899f-1a39-59bd-b130-33eaa3aa1778  91s
+
+NAME                                      READY  STATUS     RESTARTS  AGE
+pod/57f5899f-1a39-59bd-b130-33eaa3aa1778  0/1    Completed  0         91s
+pod/real-orchestrator-65888d966c-p2jzp    1/1    Running    0         115s
+pod/real-orchestrator-65888d966c-zmnb4    1/1    Running    0         115s
+== two minutes later (runnerTTLSecondsAfterFinished): garbage-collected, only the orchestrator remains
+$ kubectl get -n claude-real-e2e clauderunners,pods -l claude.cloudeng.ps/environment=real
+NAME                                    READY  STATUS   RESTARTS  AGE
+pod/real-orchestrator-65888d966c-p2jzp  1/1    Running  0         3m56s
+pod/real-orchestrator-65888d966c-zmnb4  1/1    Running  0         3m56s
 ```
 
 </details>
 
-Regenerate the image from the transcript with
-`hack/render-terminal-svg.py docs/images/real-e2e-run.txt > docs/images/real-e2e-run.svg`.
+Regenerate the recording with `hack/render-terminal-svg.py docs/images/user-flow.txt > docs/images/user-flow.svg`
+and the architecture diagram with `hack/render-architecture-svg.py docs/images`. The transcript comes from the
+tables `hack/real-session-test.sh` prints at each step, so every run of the
+[real-environment test](docs/testing.md#real-environment-test) produces a fresh one.
 
 ## Quickstart
 
 Anthropic publishes no runner image, so you build one. Runner pods run under the Restricted Pod Security Standard.
 
-1. **Create an environment in claude.ai.** Enable self-hosted environments, create one, and copy its
-   environment key (see the [Claude docs](https://code.claude.com/docs/en/self-hosted-environments)).
+1. **Create the environment in claude.ai.** In admin settings, enable self-hosted environments and create
+   one; Anthropic's guide is [Self-hosted environments](https://code.claude.com/docs/en/self-hosted-environments).
+   You get two values. The *environment key* (`ccenvkey_...`) is shown once, at creation: it is what the
+   operator needs, so copy it now. The *environment id* (`ccpool_...`) is in the environment's detail dialog:
+   the operator does not use it; it is what `claude --environment <id>` takes to start a session from the
+   CLI, while claude.ai picks the environment by name.
 2. **Create the namespace** (Restricted Pod Security labels included):
 
        kubectl apply -f examples/namespace.yaml
 
-3. **Create the Secret.** Follow the commented steps at the top of
-   [`examples/fixed-fleet.yaml`](examples/fixed-fleet.yaml): the key goes in via a file with `umask 077`,
-   never into a committed manifest. The Secret key name is `environment-secret`.
+3. **Store the key in a Secret** in the environment's namespace, under the key name `environment-secret`.
+   It goes in through a file created with `umask 077`, never through a committed manifest or a shell
+   argument:
+
+       (umask 077 && cat > ./environment-secret)   # paste the key, Enter, Ctrl-D
+       kubectl -n claude-runners create secret generic claude-env-secret --from-file=environment-secret=./environment-secret
+       rm ./environment-secret
+
+   The `ClaudeEnvironment` names that Secret in `spec.environmentSecretRef.name` (step 6). The operator
+   mounts it read-only as a file and never logs its value; in on-demand mode only the orchestrator holds it.
+   To rotate the key, create a new one in claude.ai and update the Secret: the operator rolls the fleet, or
+   the orchestrator, on the change.
 4. **Build and push the runner image.** See [`examples/runner-image`](examples/runner-image/README.md):
 
        docker build --build-arg CLAUDE_CODE_VERSION=<version> -t <registry>/claude-runner:<version> examples/runner-image
@@ -120,7 +151,8 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
 
    On kind, replace `docker-push` with `kind load docker-image <your-registry>/claude-selfhosted-operator:<tag>`.
 
-6. **Apply the example.** Edit `runner.image` in `examples/fixed-fleet.yaml` to your image first.
+6. **Apply the example.** Edit `runner.image` in `examples/fixed-fleet.yaml` to your image first; its
+   `environmentSecretRef` already names the Secret from step 3.
 
        kubectl apply -f examples/hooks-configmap.yaml -f examples/fixed-fleet.yaml
 
