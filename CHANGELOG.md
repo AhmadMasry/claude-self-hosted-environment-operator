@@ -1,9 +1,16 @@
 # Changelog
 
 All notable changes to this project are recorded here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). No version has been released yet.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+
+Nothing yet.
+
+## [0.1.0] - 2026-10-13
+
+First release. The API is `claude.cloudeng.ps/v1alpha1`; see the README's API stability
+section for what that promises.
 
 ### API
 
@@ -86,3 +93,6 @@ All notable changes to this project are recorded here. The format follows
 ### Removed
 
 - The manager's `--zap-*` flags; use `--log-level` and `--log-format`.
+
+[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/releases/tag/v0.1.0
