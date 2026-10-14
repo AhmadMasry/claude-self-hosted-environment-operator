@@ -92,6 +92,10 @@ claude_ai_login() {
   claude auth status --json 2>/dev/null | jq -e '.loggedIn == true and .authMethod == "claude.ai"' >/dev/null 2>&1
 }
 
+# The tables a user would look at; printed at each step so a run doubles as
+# the README's user-flow transcript.
+show() { echo "\$ kubectl get -n $NAMESPACE $*"; kubectl get -n "$NAMESPACE" "$@" 2>&1 || true; }
+
 echo "== operator ready"
 kubectl wait --for=condition=Established crd/claudeenvironments.claude.cloudeng.ps crd/clauderunners.claude.cloudeng.ps --timeout=60s
 kubectl rollout status -n "$OPERATOR_NAMESPACE" deployment/claude-selfhosted-operator-controller-manager --timeout=180s
@@ -115,6 +119,7 @@ kubectl get -n "$NAMESPACE" claudeenvironment/real -o jsonpath='{.status.conditi
 # The egress policies the environment enables; kind's CNI enforces them, so
 # the rest of the run proves they allow exactly what the session needs.
 kubectl get -n "$NAMESPACE" networkpolicies -l claude.cloudeng.ps/environment=real
+show claudeenvironments
 
 if [ -n "${CLAUDE_CODE_OAUTH_REFRESH_TOKEN:-}" ]; then
   : "${CLAUDE_CODE_OAUTH_SCOPES:?CLAUDE_CODE_OAUTH_SCOPES is required with CLAUDE_CODE_OAUTH_REFRESH_TOKEN}"
@@ -161,6 +166,7 @@ for _ in $(seq 1 60); do
   sleep 5
 done
 echo "runner phase: ${phase:-none}"
+show clauderunners,pods -l claude.cloudeng.ps/environment=real
 [ -n "$phase" ] || { echo "no ClaudeRunner appeared for session $session_id within 300s" >&2; dump_evidence; exit 1; }
 # Stream the runner pod's log from now on; it is only printed, redacted, if
 # the run fails.
@@ -202,6 +208,7 @@ printf '%s' "$reply" | jq -e '.wrapper == "ran"' >/dev/null ||
 echo "== level 2: runner reaches Succeeded and is garbage collected"
 kubectl wait -n "$NAMESPACE" clauderunners -l claude.cloudeng.ps/environment=real --for=jsonpath='{.status.phase}'=Succeeded --timeout=600s ||
   { echo "the ClaudeRunner did not reach Succeeded within 600s" >&2; exit 1; }
+show clauderunners,pods -l claude.cloudeng.ps/environment=real
 
 echo "== level 2: post-session lifecycle hook ran"
 # The hook runs after the child exits, within the runner's 60s budget.
@@ -224,4 +231,5 @@ for _ in $(seq 1 40); do
   sleep 5
 done
 [ "$n" = 0 ] || { echo "ClaudeRunner objects remain after 200s (count: $n)" >&2; exit 1; }
+show clauderunners,pods -l claude.cloudeng.ps/environment=real
 echo "== real-environment test passed"
