@@ -5,6 +5,10 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.1] - 2026-10-15
+
 ### Added
 
 - `spec.onDemand.orchestrator.hookInstaller.resources` replaces the install-hook init container's default
@@ -100,5 +104,6 @@ section for what that promises.
 
 - The manager's `--zap-*` flags; use `--log-level` and `--log-format`.
 
-[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/releases/tag/v0.1.0
