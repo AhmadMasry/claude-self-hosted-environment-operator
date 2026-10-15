@@ -5,7 +5,13 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `spec.onDemand.orchestrator.hookInstaller.resources` replaces the install-hook init container's default
+  resources (requests 10m CPU and 16Mi memory, limits 50m and 32Mi), for namespaces whose `LimitRange`
+  minimums are above them. The defaults are now documented in docs/on-demand.md.
+- README: an uninstall procedure, including how to free a namespace left `Terminating` on runner
+  finalizers, and the environment key's 365-day expiry and rotation steps in the quickstart.
 
 ## [0.1.0] - 2026-10-13
 

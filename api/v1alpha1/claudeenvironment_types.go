@@ -236,6 +236,20 @@ type OrchestratorSpec struct {
 	// +kubebuilder:default={}
 	// +optional
 	PodTemplate PodTemplate `json:"podTemplate,omitempty"`
+	// HookInstaller configures the install-hook init container the operator
+	// adds to the orchestrator pod.
+	// +optional
+	HookInstaller *HookInstallerSpec `json:"hookInstaller,omitempty"`
+}
+
+// HookInstallerSpec configures the install-hook init container, which copies
+// the spawn-runner hook from the operator image and exits.
+type HookInstallerSpec struct {
+	// Resources replaces the operator's defaults (requests 10m CPU and 16Mi
+	// memory, limits 50m and 32Mi), for example to satisfy a namespace
+	// LimitRange whose minimums are above them.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
 // OnDemandSpec spawns one runner per session (implemented in Plan 2).

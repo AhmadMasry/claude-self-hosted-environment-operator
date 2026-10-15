@@ -116,8 +116,9 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
 
    The `ClaudeEnvironment` names that Secret in `spec.environmentSecretRef.name` (step 6). The operator
    mounts it read-only as a file and never logs its value; in on-demand mode only the orchestrator holds it.
-   To rotate the key, create a new one in claude.ai and update the Secret: the operator rolls the fleet, or
-   the orchestrator, on the change.
+   The key expires 365 days after creation. To rotate it, create a new key from the environment's
+   Configuration tab in claude.ai, update the Secret, and revoke the old key once the pods have rolled:
+   the operator rolls the fleet, or the orchestrator, on the change.
 4. **Build and push the runner image.** See [`examples/runner-image`](examples/runner-image/README.md):
 
        docker build --build-arg CLAUDE_CODE_VERSION=<version> -t <registry>/claude-runner:<version> examples/runner-image
@@ -201,6 +202,29 @@ runner pod as an argument, so treat the object as containing personal data and l
 watches Secrets and ConfigMaps cluster-wide unless the manager runs with `--watch-namespaces`.
 See [hardening](docs/hardening.md) for Anthropic's checklist mapped to the operator, and
 [SECURITY.md](SECURITY.md) to report a vulnerability.
+
+## Uninstall
+
+Every `ClaudeRunner` carries a finalizer that the operator removes once the runner's pod is gone, so remove
+the environments while the operator still runs, and the operator last:
+
+1. Delete the `ClaudeEnvironment` objects and wait until no `ClaudeRunner` remains:
+
+       kubectl delete claudeenvironments --all -A
+       kubectl get clauderunners -A    # repeat until "No resources found"
+
+2. Delete the environment namespaces, and the Secrets and ConfigMaps in them, if you no longer need them.
+3. Uninstall the operator: `helm uninstall claude-selfhosted-operator -n claude-selfhosted-operator-system`,
+   or `kubectl delete -f install.yaml` for the kustomize installer. The chart keeps the CRDs (`crd.keep`);
+   delete them yourself to remove every remaining object of the API:
+
+       kubectl delete crd claudeenvironments.claude.cloudeng.ps clauderunners.claude.cloudeng.ps
+
+A namespace deleted in the wrong order, after the operator is gone or outside the namespaces it watches,
+stays `Terminating` on the runner finalizers. Confirm the runner pods are gone, then clear the finalizers:
+
+    kubectl get clauderunners -n <namespace> -o name \
+      | xargs -r -I{} kubectl patch {} -n <namespace> --type=merge -p '{"metadata":{"finalizers":null}}'
 
 ## Development
 

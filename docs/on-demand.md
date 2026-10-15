@@ -31,6 +31,21 @@ binary (`/spawn-runner` in the operator image) into a shared volume the orchestr
 container image (a `replacements` entry in `config/default/kustomization.yaml`). Without a hook image the
 environment is `Degraded` with reason `HookImageUnset`.
 
+The init container copies one binary and exits, so its resources are small by default: requests of 10m CPU
+and 16Mi memory, limits of 50m and 32Mi. A namespace `LimitRange` whose minimums are above those values
+rejects the orchestrator pod; set `spec.onDemand.orchestrator.hookInstaller.resources` to replace them
+(the whole block replaces the defaults, so set both requests and limits when the LimitRange needs both):
+
+```yaml
+spec:
+  onDemand:
+    orchestrator:
+      hookInstaller:
+        resources:
+          requests: {cpu: 100m, memory: 64Mi}
+          limits: {cpu: 200m, memory: 128Mi}
+```
+
 ## Orchestrator probes
 
 Readiness is an exec probe, `/etc/claude/hooks/spawn-runner --probe-connected http://127.0.0.1:<healthPort>/healthz`,
