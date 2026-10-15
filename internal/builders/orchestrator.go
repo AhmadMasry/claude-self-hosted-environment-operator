@@ -205,17 +205,26 @@ func orchestratorContainers(env *selfhostedv1alpha1.ClaudeEnvironment) []corev1.
 	}}
 }
 
-func orchestratorInitContainers(hookImage string) []corev1.Container {
+// hookInstallerResources returns the install-hook resources: the spec's when
+// it sets any, the operator's defaults otherwise.
+func hookInstallerResources(hi *selfhostedv1alpha1.HookInstallerSpec) corev1.ResourceRequirements {
+	if hi != nil && (len(hi.Resources.Requests) > 0 || len(hi.Resources.Limits) > 0) {
+		return *hi.Resources.DeepCopy()
+	}
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10m"), corev1.ResourceMemory: resource.MustParse("16Mi")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m"), corev1.ResourceMemory: resource.MustParse("32Mi")},
+	}
+}
+
+func orchestratorInitContainers(hookImage string, hi *selfhostedv1alpha1.HookInstallerSpec) []corev1.Container {
 	return []corev1.Container{{
-		Name:         HookInitContainerName,
-		Image:        hookImage,
-		Command:      []string{HookBinaryPath},
-		Args:         []string{"--install", HookInstallDir},
-		VolumeMounts: []corev1.VolumeMount{{Name: hookVolumeName, MountPath: HookInstallDir}},
-		Resources: corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10m"), corev1.ResourceMemory: resource.MustParse("16Mi")},
-			Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m"), corev1.ResourceMemory: resource.MustParse("32Mi")},
-		},
+		Name:            HookInitContainerName,
+		Image:           hookImage,
+		Command:         []string{HookBinaryPath},
+		Args:            []string{"--install", HookInstallDir},
+		VolumeMounts:    []corev1.VolumeMount{{Name: hookVolumeName, MountPath: HookInstallDir}},
+		Resources:       hookInstallerResources(hi),
 		SecurityContext: restrictedContainerSecurityContext(),
 	}}
 }
@@ -256,7 +265,7 @@ func OrchestratorDeployment(env *selfhostedv1alpha1.ClaudeEnvironment, hash, hoo
 					RuntimeClassName:              pt.RuntimeClassName,
 					SchedulerName:                 pt.SchedulerName,
 					Volumes:                       orchestratorVolumes(env),
-					InitContainers:                append(orchestratorInitContainers(hookImage), InitContainers(pt.InitContainers)...),
+					InitContainers:                append(orchestratorInitContainers(hookImage, o.HookInstaller), InitContainers(pt.InitContainers)...),
 					Containers:                    orchestratorContainers(env),
 				},
 			},

@@ -23,6 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/ptr"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
@@ -51,6 +52,21 @@ func TestOrchestratorDeploymentUserInitContainersFollowTheHookInstaller(t *testi
 	sc := ics[1].SecurityContext
 	if sc == nil || *sc.AllowPrivilegeEscalation || !*sc.ReadOnlyRootFilesystem || sc.Capabilities.Drop[0] != capabilityAll {
 		t.Fatalf("user init container must carry the operator's security context: %+v", sc)
+	}
+}
+
+func TestOrchestratorDeploymentHookInstallerResources(t *testing.T) {
+	env := onDemandEnv()
+	def := OrchestratorDeployment(env, "h", "example.com/op:1").Spec.Template.Spec.InitContainers[0].Resources
+	if def.Requests.Cpu().String() != "10m" || def.Limits.Memory().String() != "32Mi" {
+		t.Fatalf("default hook installer resources = %+v", def)
+	}
+	env.Spec.OnDemand.Orchestrator.HookInstaller = &selfhostedv1alpha1.HookInstallerSpec{Resources: corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("64Mi")},
+	}}
+	got := OrchestratorDeployment(env, "h", "example.com/op:1").Spec.Template.Spec.InitContainers[0].Resources
+	if got.Requests.Cpu().String() != "100m" || got.Requests.Memory().String() != "64Mi" || len(got.Limits) != 0 {
+		t.Fatalf("hook installer resources not taken from the spec: %+v", got)
 	}
 }
 
