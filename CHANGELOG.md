@@ -7,6 +7,13 @@ All notable changes to this project are recorded here. The format follows
 
 Nothing yet.
 
+## [0.1.2] - 2026-10-18
+
+### Changed
+
+- Dependencies: github.com/prometheus/client_golang 1.24.1 to 1.25.0 (with client_model, common
+  and procfs) and github.com/onsi/ginkgo/v2 2.33.0 to 2.33.1. No behaviour change.
+
 ## [0.1.1] - 2026-10-15
 
 ### Added
@@ -104,6 +111,7 @@ section for what that promises.
 
 - The manager's `--zap-*` flags; use `--log-level` and `--log-format`.
 
-[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/releases/tag/v0.1.0
