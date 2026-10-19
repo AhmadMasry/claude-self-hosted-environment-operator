@@ -261,8 +261,8 @@ func OrchestratorDeployment(env *selfhostedv1alpha1.ClaudeEnvironment, hash, hoo
 			Strategy: appsv1.DeploymentStrategy{
 				Type: appsv1.RollingUpdateDeploymentStrategyType,
 				RollingUpdate: &appsv1.RollingUpdateDeployment{
-					MaxUnavailable: ptrIntOrString(intstr.FromInt32(0)),
-					MaxSurge:       ptrIntOrString(intstr.FromInt32(1)),
+					MaxUnavailable: new(intstr.FromInt32(0)),
+					MaxSurge:       new(intstr.FromInt32(1)),
 				},
 			},
 			MinReadySeconds: orchestratorMinReadySeconds,
@@ -290,8 +290,6 @@ func OrchestratorDeployment(env *selfhostedv1alpha1.ClaudeEnvironment, hash, hoo
 	}
 }
 
-func ptrIntOrString(v intstr.IntOrString) *intstr.IntOrString { return &v }
-
 // OrchestratorNeedsPDB reports whether the environment runs enough
 // orchestrator replicas for a PodDisruptionBudget to make sense. With one
 // replica a budget of minAvailable 1 would block every voluntary eviction,
@@ -308,7 +306,7 @@ func OrchestratorPodDisruptionBudget(env *selfhostedv1alpha1.ClaudeEnvironment) 
 		TypeMeta:   metav1.TypeMeta{APIVersion: "policy/v1", Kind: "PodDisruptionBudget"},
 		ObjectMeta: orchestratorMeta(env),
 		Spec: policyv1.PodDisruptionBudgetSpec{
-			MinAvailable: ptrIntOrString(intstr.FromInt32(1)),
+			MinAvailable: new(intstr.FromInt32(1)),
 			Selector:     &metav1.LabelSelector{MatchLabels: OrchestratorSelectorLabels(env)},
 		},
 	}

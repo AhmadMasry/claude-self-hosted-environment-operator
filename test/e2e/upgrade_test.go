@@ -67,12 +67,21 @@ func startSurvivorRunner() string {
 	Expect(err).NotTo(HaveOccurred())
 	uid, err := kubectlOD("get", "claudeenvironment", "e2e-od", "-o", "jsonpath={.metadata.uid}")
 	Expect(err).NotTo(HaveOccurred())
+	// The controller mounts a work order only when it is labelled with the
+	// environment and controller-owned by it, exactly as the hook writes it.
 	objects := `apiVersion: v1
 kind: Secret
 metadata:
   name: ` + survivorOrder + `-work-order
   labels:
     claude.cloudeng.ps/environment: e2e-od
+    claude.cloudeng.ps/order-id: ` + survivorOrder + `
+  ownerReferences:
+    - apiVersion: claude.cloudeng.ps/v1alpha1
+      kind: ClaudeEnvironment
+      name: e2e-od
+      uid: ` + strings.TrimSpace(uid) + `
+      controller: true
 type: Opaque
 stringData:
   jwt: stub-work-order-jwt
@@ -81,6 +90,9 @@ apiVersion: claude.cloudeng.ps/v1alpha1
 kind: ClaudeRunner
 metadata:
   name: ` + survivorOrder + `
+  labels:
+    claude.cloudeng.ps/environment: e2e-od
+    claude.cloudeng.ps/order-id: ` + survivorOrder + `
   ownerReferences:
     - apiVersion: claude.cloudeng.ps/v1alpha1
       kind: ClaudeEnvironment
