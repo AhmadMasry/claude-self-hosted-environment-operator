@@ -165,11 +165,7 @@ func TestOrchestratorDeployment(t *testing.T) {
 	if d.Spec.Template.Annotations[selfhostedv1alpha1.AnnotationConfigHash] != "h9" {
 		t.Fatal("hash annotation missing")
 	}
-	ru := d.Spec.Strategy.RollingUpdate
-	if d.Spec.Strategy.Type != appsv1.RollingUpdateDeploymentStrategyType || ru == nil ||
-		ru.MaxUnavailable.IntValue() != 0 || ru.MaxSurge.IntValue() != 1 || d.Spec.MinReadySeconds != 5 {
-		t.Fatalf("rollout must surge one and never drop below replicas: %+v minReady=%d", d.Spec.Strategy, d.Spec.MinReadySeconds)
-	}
+	checkOrchestratorRollout(t, d)
 	if ps.ServiceAccountName != testOrchestratorName || ps.AutomountServiceAccountToken == nil || !*ps.AutomountServiceAccountToken {
 		t.Fatal("orchestrator needs its ServiceAccount token for the hook")
 	}
@@ -202,6 +198,15 @@ func TestOrchestratorDeployment(t *testing.T) {
 	env.Spec.OnDemand.Orchestrator.Image = "r:orch"
 	if OrchestratorDeployment(env, "h", "op").Spec.Template.Spec.Containers[0].Image != "r:orch" {
 		t.Fatal("explicit orchestrator image not honoured")
+	}
+}
+
+func checkOrchestratorRollout(t *testing.T, d *appsv1.Deployment) {
+	t.Helper()
+	ru := d.Spec.Strategy.RollingUpdate
+	if d.Spec.Strategy.Type != appsv1.RollingUpdateDeploymentStrategyType || ru == nil ||
+		ru.MaxUnavailable.IntValue() != 0 || ru.MaxSurge.IntValue() != 1 || d.Spec.MinReadySeconds != 5 {
+		t.Fatalf("rollout must surge one and never drop below replicas: %+v minReady=%d", d.Spec.Strategy, d.Spec.MinReadySeconds)
 	}
 }
 
