@@ -5,6 +5,10 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-10-19
+
 ### Added
 
 - The orchestrator Deployment declares its rollout: `maxSurge: 1`, `maxUnavailable: 0` and
@@ -140,7 +144,8 @@ section for what that promises.
 
 - The manager's `--zap-*` flags; use `--log-level` and `--log-format`.
 
-[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/releases/tag/v0.1.0
