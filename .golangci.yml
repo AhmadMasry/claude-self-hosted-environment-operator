@@ -42,6 +42,10 @@ linters:
     modernize:
       disable:
         - omitzero
+        # embedlit rewrites every struct literal to Go 1.27's promoted-field
+        # form; the explicit ObjectMeta/TypeMeta form stays readable on
+        # older toolchains and in the Kubernetes docs.
+        - embedlit
   exclusions:
     generated: lax
     rules:
