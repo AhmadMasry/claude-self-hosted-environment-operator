@@ -29,9 +29,11 @@ for the verification commands.
 
 - Kubernetes 1.30 or later for the `ValidatingAdmissionPolicy` that confines each on-demand
   orchestrator to its own work orders (`admissionPolicy.enabled`); set it to `false` on older clusters.
-- With `rbac.namespaced=true`, the manager cannot read the `default/kubernetes` Endpoints, so
-  `networkPolicy.apiServerEndpoints` is required whenever an on-demand environment enables
-  `spec.runner.networkPolicy`.
+- `rbac.namespaced=true` gives the manager a Role in the release namespace instead of a ClusterRole.
+  Install the operator and create the environments in that one namespace, set `watchNamespaces` to it,
+  and set `networkPolicy.apiServerEndpoints` whenever an on-demand environment enables
+  `spec.runner.networkPolicy` (a Role cannot read the `default/kubernetes` Endpoints). See
+  [namespaced install](https://github.com/AhmadMasry/claude-self-hosted-environment-operator/blob/master/docs/hardening.md#namespaced-install).
 - `prometheus.enabled` needs the Prometheus Operator CRDs (ServiceMonitor and PodMonitor).
 
 After installing, create a `ClaudeEnvironment`; see the
