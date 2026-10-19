@@ -133,8 +133,9 @@ Anthropic publishes no runner image, so you build one. Runner pods run under the
 
    Without `--version` Helm installs the newest stable chart; pre-releases need `--version X.Y.Z-rc.N`
    or `--devel`. The values, their defaults and the cluster requirements (`admissionPolicy.enabled` needs
-   Kubernetes 1.30; `networkPolicy.apiServerEndpoints` is required with `rbac.namespaced=true`) are in the
-   chart's [README](dist/chart/README.md).
+   Kubernetes 1.30) are in the chart's [README](dist/chart/README.md). To run without cluster-wide RBAC,
+   with the operator and its environments in one namespace, see
+   [namespaced install](docs/hardening.md#namespaced-install).
 
    Or with the installer of the newest stable release (it creates and labels the namespace itself; a
    pre-release's installer is under that release's assets):

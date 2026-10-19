@@ -170,6 +170,53 @@ Secret. Run the manager with `--watch-namespaces=<ns1>,<ns2>` (Helm value `watch
 cache to those namespaces; environments in other namespaces are then ignored. The ClusterRole itself is
 not narrowed by the flag.
 
+### Namespaced install
+
+The chart value `rbac.namespaced=true` replaces the ClusterRole and ClusterRoleBinding with a Role and
+RoleBinding in the release namespace, for clusters where the operator may not hold cluster-wide rights.
+Every rule in the manager role is for namespaced resources, so nothing is lost; what changes is where the
+operator may act. In this mode:
+
+- The operator, the ClaudeEnvironment objects, the environment key Secret, the orchestrator and every
+  runner pod live in the release namespace. The operator creates ClaudeRunners and pods in the
+  environment's namespace, and the Role covers only its own. The CRDs are cluster-scoped and are
+  installed as usual.
+- Set `watchNamespaces` to the release namespace. The Role does not allow cluster-wide list and watch,
+  which is what the manager asks for when the value is empty.
+- Set `networkPolicy.apiServerEndpoints` if any on-demand environment enables `spec.runner.networkPolicy`;
+  a Role cannot grant `get` on the `default/kubernetes` Endpoints. The symptom without it is in
+  [troubleshooting](../TROUBLESHOOTING.md#--watch-namespaces-mistakes).
+
+The README quickstart uses two namespaces and so does not apply as written. A single-namespace install
+looks like this:
+
+```bash
+kubectl apply -f examples/namespace.yaml   # claude-runners, labelled Restricted
+helm install claude-selfhosted-operator oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator \
+  --namespace claude-runners \
+  --set rbac.namespaced=true \
+  --set watchNamespaces=claude-runners
+```
+
+Then create the Secret and the ClaudeEnvironment in `claude-runners` as in the quickstart.
+
+To let the namespaced operator also serve a second namespace, copy its Role there, bind its
+ServiceAccount to the copy, and add the namespace to `watchNamespaces`:
+
+```bash
+kubectl get role claude-selfhosted-operator-manager-role -n claude-runners -o json \
+  | jq '.metadata = {name: .metadata.name, namespace: "team-a"}' | kubectl apply -f -
+kubectl create rolebinding claude-selfhosted-operator-manager-rolebinding -n team-a \
+  --role=claude-selfhosted-operator-manager-role \
+  --serviceaccount=claude-runners:claude-selfhosted-operator-controller-manager
+helm upgrade claude-selfhosted-operator oci://ghcr.io/ahmadmasry/charts/claude-selfhosted-operator \
+  --namespace claude-runners --reuse-values --set watchNamespaces=claude-runners\,team-a
+```
+
+The copied Role is not managed by Helm: repeat the copy after a chart upgrade whose changelog mentions
+RBAC. Past one or two extra namespaces, the default cluster-scoped RBAC with `watchNamespaces` is the
+simpler shape.
+
 The orchestrator Role (one per on-demand environment, `<env>-orchestrator`) grants `get` on its own
 `claudeenvironments` object, `create, get` on `clauderunners` (plus `list` when `maxConcurrentRunners` is
 above 0) and `create, patch, delete` on `secrets`. The manager needs `create, patch, delete` on Secrets
