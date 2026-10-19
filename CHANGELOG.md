@@ -13,6 +13,9 @@ All notable changes to this project are recorded here. The format follows
   requires one. The CRDs and the pods the operator builds never defaulted CPU limits; only the
   install-hook init container keeps its small fixed resources, overridable via
   `spec.onDemand.orchestrator.hookInstaller.resources`.
+- Toolchain: Go 1.27 (`go.mod`, the manager image and the test images build on `golang:1.27`);
+  controller-tools 0.23.0, kustomize 5.8.3, golangci-lint 2.15.0 with logtools 0.11.0;
+  `k8s.io/utils` refreshed. Go modules and GitHub Actions were already at their latest releases.
 
 ## [0.1.2] - 2026-10-18
 

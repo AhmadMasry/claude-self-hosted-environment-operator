@@ -135,7 +135,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 # Override BASE_IMAGE to build from another registry, e.g.
-# make docker-build IMG=<img> BASE_IMAGE=docker.io/library/golang:1.26
+# make docker-build IMG=<img> BASE_IMAGE=docker.io/library/golang:1.27
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE)) $(if $(VERSION),--build-arg VERSION=$(VERSION)) -t ${IMG} .
@@ -264,8 +264,8 @@ KUBEBUILDER ?= $(LOCALBIN)/kubebuilder
 HELM_DOCS ?= $(LOCALBIN)/helm-docs
 
 ## Tool Versions
-KUSTOMIZE_VERSION ?= v5.8.1
-CONTROLLER_TOOLS_VERSION ?= v0.22.0
+KUSTOMIZE_VERSION ?= v5.8.3
+CONTROLLER_TOOLS_VERSION ?= v0.23.0
 
 #ENVTEST_VERSION is the controller-runtime version to use for setup-envtest, derived from go.mod
 ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
@@ -281,7 +281,7 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
 print-envtest-version: ## Print the envtest Kubernetes version (used by CI).
 	@echo $(ENVTEST_K8S_VERSION)
 
-GOLANGCI_LINT_VERSION ?= v2.13.1
+GOLANGCI_LINT_VERSION ?= v2.15.0
 KUBEBUILDER_VERSION ?= v4.16.0
 HELM_DOCS_VERSION ?= v1.14.2
 .PHONY: kustomize
