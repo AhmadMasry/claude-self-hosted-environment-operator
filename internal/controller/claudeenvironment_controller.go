@@ -29,6 +29,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -126,6 +127,7 @@ func (r *ClaudeEnvironmentReconciler) apiServerEndpoints() []netip.AddrPort {
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=endpoints,verbs=get,resourceNames=kubernetes
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile drives one ClaudeEnvironment towards its desired state.
@@ -436,6 +438,10 @@ func (r *ClaudeEnvironmentReconciler) reconcileOnDemand(ctx context.Context, env
 		env.Status.OnDemand = nil
 		return ctrl.Result{}, r.applyFailed(env, pass, "Deployment", err)
 	}
+	if err := r.reconcileOrchestratorPDB(ctx, env, pass); err != nil {
+		env.Status.OnDemand = nil
+		return ctrl.Result{}, err
+	}
 
 	if deploymentAvailable(dep) {
 		pass.set(selfhostedv1alpha1.ConditionFleetAvailable, metav1.ConditionTrue, selfhostedv1alpha1.ReasonWorkloadAvailable, "")
@@ -532,6 +538,20 @@ func (r *ClaudeEnvironmentReconciler) applyOrchestratorRBAC(ctx context.Context,
 	return nil
 }
 
+// reconcileOrchestratorPDB keeps a PodDisruptionBudget on the orchestrator
+// while it runs two or more replicas and removes it otherwise, so a single
+// replica never carries a budget that would block every drain.
+func (r *ClaudeEnvironmentReconciler) reconcileOrchestratorPDB(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) error {
+	if builders.OrchestratorNeedsPDB(env) {
+		pdb := builders.OrchestratorPodDisruptionBudget(env)
+		if err := r.apply(ctx, env, pdb); err != nil {
+			return r.applyFailed(env, pass, "PodDisruptionBudget", err)
+		}
+		return nil
+	}
+	return r.deleteIfOwned(ctx, env, &policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{Name: builders.OrchestratorName(env), Namespace: env.Namespace}})
+}
+
 // deploymentAvailable reports whether the Deployment's current generation is Available.
 func deploymentAvailable(dep *appsv1.Deployment) bool {
 	for _, c := range dep.Status.Conditions {
@@ -564,7 +584,7 @@ func (r *ClaudeEnvironmentReconciler) deleteOrchestratorObjects(ctx context.Cont
 	name := builders.OrchestratorName(env)
 	om := metav1.ObjectMeta{Name: name, Namespace: env.Namespace}
 	for _, obj := range []client.Object{
-		&appsv1.Deployment{ObjectMeta: om}, &rbacv1.RoleBinding{ObjectMeta: om}, &rbacv1.Role{ObjectMeta: om}, &corev1.ServiceAccount{ObjectMeta: om},
+		&policyv1.PodDisruptionBudget{ObjectMeta: om}, &appsv1.Deployment{ObjectMeta: om}, &rbacv1.RoleBinding{ObjectMeta: om}, &rbacv1.Role{ObjectMeta: om}, &corev1.ServiceAccount{ObjectMeta: om},
 	} {
 		if err := r.deleteIfOwned(ctx, env, obj); err != nil {
 			return err
@@ -647,11 +667,12 @@ func CacheByObject() (map[client.Object]cache.ByObject, error) {
 	}
 	operatorOwned := cache.ByObject{Label: labels.NewSelector().Add(*partOf)}
 	return map[client.Object]cache.ByObject{
-		&corev1.Pod{}:                 {Label: labels.NewSelector().Add(*role)},
-		&corev1.ServiceAccount{}:      operatorOwned,
-		&rbacv1.Role{}:                operatorOwned,
-		&rbacv1.RoleBinding{}:         operatorOwned,
-		&networkingv1.NetworkPolicy{}: operatorOwned,
+		&corev1.Pod{}:                   {Label: labels.NewSelector().Add(*role)},
+		&corev1.ServiceAccount{}:        operatorOwned,
+		&rbacv1.Role{}:                  operatorOwned,
+		&rbacv1.RoleBinding{}:           operatorOwned,
+		&networkingv1.NetworkPolicy{}:   operatorOwned,
+		&policyv1.PodDisruptionBudget{}: operatorOwned,
 	}, nil
 }
 
@@ -681,6 +702,7 @@ func (r *ClaudeEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.RoleBinding{}).
 		Owns(&networkingv1.NetworkPolicy{}).
+		Owns(&policyv1.PodDisruptionBudget{}).
 		Owns(&selfhostedv1alpha1.ClaudeRunner{}, builder.WithPredicates(runnerPhaseChanged())).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.environmentsReferencing(indexSecretName))).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.environmentsReferencing(indexConfigMapNames))).

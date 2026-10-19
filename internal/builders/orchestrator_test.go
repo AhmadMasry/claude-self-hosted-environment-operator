@@ -17,10 +17,12 @@ limitations under the License.
 package builders
 
 import (
+	"maps"
 	"slices"
 	"strconv"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -163,6 +165,7 @@ func TestOrchestratorDeployment(t *testing.T) {
 	if d.Spec.Template.Annotations[selfhostedv1alpha1.AnnotationConfigHash] != "h9" {
 		t.Fatal("hash annotation missing")
 	}
+	checkOrchestratorRollout(t, d)
 	if ps.ServiceAccountName != testOrchestratorName || ps.AutomountServiceAccountToken == nil || !*ps.AutomountServiceAccountToken {
 		t.Fatal("orchestrator needs its ServiceAccount token for the hook")
 	}
@@ -195,6 +198,15 @@ func TestOrchestratorDeployment(t *testing.T) {
 	env.Spec.OnDemand.Orchestrator.Image = "r:orch"
 	if OrchestratorDeployment(env, "h", "op").Spec.Template.Spec.Containers[0].Image != "r:orch" {
 		t.Fatal("explicit orchestrator image not honoured")
+	}
+}
+
+func checkOrchestratorRollout(t *testing.T, d *appsv1.Deployment) {
+	t.Helper()
+	ru := d.Spec.Strategy.RollingUpdate
+	if d.Spec.Strategy.Type != appsv1.RollingUpdateDeploymentStrategyType || ru == nil ||
+		ru.MaxUnavailable.IntValue() != 0 || ru.MaxSurge.IntValue() != 1 || d.Spec.MinReadySeconds != 5 {
+		t.Fatalf("rollout must surge one and never drop below replicas: %+v minReady=%d", d.Spec.Strategy, d.Spec.MinReadySeconds)
 	}
 }
 
@@ -274,5 +286,30 @@ func TestOrchestratorConfigHash(t *testing.T) {
 	e3.Spec.OnDemand.Orchestrator.Replicas = ptr.To[int32](3)
 	if OrchestratorConfigHash(e3, sec, "op:1") != base {
 		t.Fatal("replicas must not change the hash")
+	}
+}
+
+func TestOrchestratorPodDisruptionBudget(t *testing.T) {
+	env := onDemandEnv()
+	env.Spec.OnDemand.Orchestrator.Replicas = ptr.To[int32](1)
+	if OrchestratorNeedsPDB(env) {
+		t.Fatal("one replica must not get a budget: minAvailable 1 would block every drain")
+	}
+	env.Spec.OnDemand.Orchestrator.Replicas = ptr.To[int32](2)
+	if !OrchestratorNeedsPDB(env) {
+		t.Fatal("two replicas need a budget")
+	}
+	pdb := OrchestratorPodDisruptionBudget(env)
+	if pdb.Name != testOrchestratorName || pdb.Kind != "PodDisruptionBudget" || pdb.APIVersion != "policy/v1" {
+		t.Fatalf("identity wrong: %s %s %s", pdb.Name, pdb.Kind, pdb.APIVersion)
+	}
+	if pdb.Spec.MinAvailable == nil || pdb.Spec.MinAvailable.IntValue() != 1 || pdb.Spec.MaxUnavailable != nil {
+		t.Fatalf("budget must keep one orchestrator available: %+v", pdb.Spec)
+	}
+	if pdb.Labels[selfhostedv1alpha1.LabelPartOf] != selfhostedv1alpha1.PartOfValue {
+		t.Fatalf("part-of label missing: %v", pdb.Labels)
+	}
+	if !maps.Equal(pdb.Spec.Selector.MatchLabels, OrchestratorSelectorLabels(env)) {
+		t.Fatalf("selector must match the orchestrator pods: %v", pdb.Spec.Selector.MatchLabels)
 	}
 }

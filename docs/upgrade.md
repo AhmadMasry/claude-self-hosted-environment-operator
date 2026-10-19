@@ -60,7 +60,12 @@ shows the CEL message without changing anything.
 
 The operator re-renders its workloads after an upgrade. A change in the rendered pod template (new flags,
 labels or defaults) rolls the runner Deployment or StatefulSet and the orchestrator Deployment once, under
-the same drain budget as any other rollout.
+the same drain budget as any other rollout. The orchestrator always rolls, because its hook image is the
+operator image; the rollout surges one pod and retires an old one only after the new one is connected (see
+[orchestrator rollouts](on-demand.md#orchestrator-rollouts)). On-demand runner pods are untouched: they
+belong to their ClaudeRunner, not to the orchestrator, and sessions in progress keep running. The manager
+releases its leader lease on shutdown, so the new manager pod takes over without waiting out the lease;
+ClaudeRunners created during the handover get their pods as soon as it is in.
 
 ### Notes for the hardening release
 

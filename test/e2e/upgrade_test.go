@@ -52,7 +52,74 @@ func installerGroup(installer string) string {
 const (
 	odOrchestrator = "e2e-od-orchestrator"
 	hookTimeoutEnv = "CLAUDE_OPERATOR_HOOK_TIMEOUT_SECONDS"
+	// survivorOrder is a ClaudeRunner started under the previous manager and
+	// expected to keep its pod across the upgrade.
+	survivorOrder = "upgrade-survivor"
 )
+
+// startSurvivorRunner creates a work order and ClaudeRunner by hand, as the
+// hook would, with a runner that stays up long enough to outlive the upgrade,
+// and returns the UID of its pod once it is Running.
+func startSurvivorRunner() string {
+	By("creating a long-running on-demand runner under the previous manager")
+	_, err := kubectlOD("patch", "claudeenvironment", "e2e-od", "--type=merge",
+		"-p", `{"spec":{"runner":{"env":[{"name":"STUB_EXIT_AFTER_SECONDS","value":"900"}]}}}`)
+	Expect(err).NotTo(HaveOccurred())
+	uid, err := kubectlOD("get", "claudeenvironment", "e2e-od", "-o", "jsonpath={.metadata.uid}")
+	Expect(err).NotTo(HaveOccurred())
+	// The controller mounts a work order only when it is labelled with the
+	// environment and controller-owned by it, exactly as the hook writes it.
+	objects := `apiVersion: v1
+kind: Secret
+metadata:
+  name: ` + survivorOrder + `-work-order
+  labels:
+    claude.cloudeng.ps/environment: e2e-od
+    claude.cloudeng.ps/order-id: ` + survivorOrder + `
+  ownerReferences:
+    - apiVersion: claude.cloudeng.ps/v1alpha1
+      kind: ClaudeEnvironment
+      name: e2e-od
+      uid: ` + strings.TrimSpace(uid) + `
+      controller: true
+type: Opaque
+stringData:
+  jwt: stub-work-order-jwt
+---
+apiVersion: claude.cloudeng.ps/v1alpha1
+kind: ClaudeRunner
+metadata:
+  name: ` + survivorOrder + `
+  labels:
+    claude.cloudeng.ps/environment: e2e-od
+    claude.cloudeng.ps/order-id: ` + survivorOrder + `
+  ownerReferences:
+    - apiVersion: claude.cloudeng.ps/v1alpha1
+      kind: ClaudeEnvironment
+      name: e2e-od
+      uid: ` + strings.TrimSpace(uid) + `
+      controller: true
+spec:
+  environmentRef:
+    name: e2e-od
+  orderID: ` + survivorOrder + `
+  workOrderSecretRef:
+    name: ` + survivorOrder + `-work-order
+`
+	apply := exec.Command("kubectl", "-n", odNamespace, "create", "-f", "-")
+	apply.Stdin = strings.NewReader(objects)
+	_, err = utils.Run(apply)
+	Expect(err).NotTo(HaveOccurred())
+	Eventually(func(g Gomega) {
+		out, err := kubectlOD("get", "clauderunner", survivorOrder, "-o", "jsonpath={.status.phase}")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(strings.TrimSpace(out)).To(Equal("Running"))
+	}, 2*time.Minute, 3*time.Second).Should(Succeed())
+	podUID, err := kubectlOD("get", "pod", survivorOrder, "-o", "jsonpath={.metadata.uid}")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(strings.TrimSpace(podUID)).NotTo(BeEmpty())
+	return strings.TrimSpace(podUID)
+}
 
 func odReady(g Gomega) {
 	out, err := kubectlOD("get", "claudeenvironment", "e2e-od", "-o", `jsonpath={.status.conditions[?(@.type=="Ready")].status}`)
@@ -72,6 +139,7 @@ func upgradeSpecs() {
 	// reserved-path rule and the hook timeout variable and when it already
 	// carries them, so BeforeAll records which case applies.
 	var previousRejectsInvalid, previousHasHookTimeoutEnv, sameGroup bool
+	var survivorPodUID string
 
 	// createEnvironments creates the fixed-fleet and on-demand environments
 	// from testdata and waits for both to be Ready under whichever manager is
@@ -142,6 +210,7 @@ func upgradeSpecs() {
 				By("previous revision accepts a reserved-path volumeMount; asserting the accept-to-reject transition")
 			}
 			createEnvironments()
+			survivorPodUID = startSurvivorRunner()
 			if previousHasHookTimeoutEnv {
 				By("previous orchestrator template already carries the hook timeout variable; asserting only the post-upgrade state")
 			} else {
@@ -211,6 +280,27 @@ func upgradeSpecs() {
 			events, err = kubectlOD("get", "events", "--field-selector=reason=FailedCreate", "-o", "name")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(events)).To(BeEmpty())
+			By("asserting the orchestrator rollout completed with no surplus replicas")
+			_, err = kubectlOD("rollout", "status", "deploy/"+odOrchestrator, "--timeout=180s")
+			Expect(err).NotTo(HaveOccurred())
+			out, err = kubectlOD("get", "deploy", odOrchestrator, "-o",
+				"jsonpath={.spec.replicas} {.status.replicas} {.status.updatedReplicas} {.status.readyReplicas} {.spec.strategy.rollingUpdate.maxUnavailable} {.spec.strategy.rollingUpdate.maxSurge}")
+			Expect(err).NotTo(HaveOccurred())
+			f := strings.Fields(out)
+			Expect(f).To(HaveLen(6), out)
+			Expect(f[1]).To(Equal(f[0]), "old replicas still present after the rollout")
+			Expect(f[2]).To(Equal(f[0]), "not every replica on the new template")
+			Expect(f[3]).To(Equal(f[0]), "not every replica ready")
+			Expect(f[4:]).To(Equal([]string{"0", "1"}), "rollout must surge one and never go below replicas")
+			if sameGroup {
+				By("asserting the runner started before the upgrade is still the same running pod")
+				out, err = kubectlOD("get", "pod", survivorOrder, "-o", "jsonpath={.metadata.uid} {.status.phase}")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(Equal(survivorPodUID+" Running"), "the runner pod must survive the operator and orchestrator rollouts untouched")
+				out, err = kubectlOD("get", "clauderunner", survivorOrder, "-o", "jsonpath={.status.phase}")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(strings.TrimSpace(out)).To(Equal("Running"))
+			}
 			if previousRejectsInvalid {
 				By("asserting the new manager still rejects an invalid environment")
 			} else {
