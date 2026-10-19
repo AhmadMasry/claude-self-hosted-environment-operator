@@ -22,6 +22,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,6 +43,10 @@ const (
 	healthzPath               = "/healthz"
 	appsAPIVersion            = "apps/v1"
 	orchestratorGraceSeconds  = int64(30)
+	// orchestratorMinReadySeconds keeps a new orchestrator pod out of the
+	// rollout's ready count until it has stayed connected this long, so a
+	// replica that connects and drops at once does not retire an old one.
+	orchestratorMinReadySeconds = int32(5)
 )
 
 // OrchestratorName names every orchestrator-side object for an environment.
@@ -249,6 +254,18 @@ func OrchestratorDeployment(env *selfhostedv1alpha1.ClaudeEnvironment, hash, hoo
 		Spec: appsv1.DeploymentSpec{
 			Replicas: o.Replicas,
 			Selector: &metav1.LabelSelector{MatchLabels: OrchestratorSelectorLabels(env)},
+			// Surge one, never go below the replica count: a new pod must pass
+			// the connected probe before an old one is retired, so a rollout
+			// (hook image change on an operator upgrade, Secret rotation)
+			// keeps the environment accepting sessions.
+			Strategy: appsv1.DeploymentStrategy{
+				Type: appsv1.RollingUpdateDeploymentStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDeployment{
+					MaxUnavailable: ptrIntOrString(intstr.FromInt32(0)),
+					MaxSurge:       ptrIntOrString(intstr.FromInt32(1)),
+				},
+			},
+			MinReadySeconds: orchestratorMinReadySeconds,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: annotations},
 				Spec: corev1.PodSpec{
@@ -269,6 +286,30 @@ func OrchestratorDeployment(env *selfhostedv1alpha1.ClaudeEnvironment, hash, hoo
 					Containers:                    orchestratorContainers(env),
 				},
 			},
+		},
+	}
+}
+
+func ptrIntOrString(v intstr.IntOrString) *intstr.IntOrString { return &v }
+
+// OrchestratorNeedsPDB reports whether the environment runs enough
+// orchestrator replicas for a PodDisruptionBudget to make sense. With one
+// replica a budget of minAvailable 1 would block every voluntary eviction,
+// including node drains, for no availability gain.
+func OrchestratorNeedsPDB(env *selfhostedv1alpha1.ClaudeEnvironment) bool {
+	r := env.Spec.OnDemand.Orchestrator.Replicas
+	return r != nil && *r >= 2
+}
+
+// OrchestratorPodDisruptionBudget keeps at least one orchestrator connected
+// through voluntary disruptions such as node drains.
+func OrchestratorPodDisruptionBudget(env *selfhostedv1alpha1.ClaudeEnvironment) *policyv1.PodDisruptionBudget {
+	return &policyv1.PodDisruptionBudget{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "policy/v1", Kind: "PodDisruptionBudget"},
+		ObjectMeta: orchestratorMeta(env),
+		Spec: policyv1.PodDisruptionBudgetSpec{
+			MinAvailable: ptrIntOrString(intstr.FromInt32(1)),
+			Selector:     &metav1.LabelSelector{MatchLabels: OrchestratorSelectorLabels(env)},
 		},
 	}
 }

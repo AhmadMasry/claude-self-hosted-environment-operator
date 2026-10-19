@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -83,6 +84,13 @@ var _ = Describe("ClaudeEnvironment on-demand mode", func() {
 		Expect(k8sClient.Get(ctx, orch, role)).To(Succeed())
 		Expect(role.Rules[1].Verbs).To(ContainElement("list"))
 		Expect(k8sClient.Get(ctx, orch, &rbacv1.RoleBinding{})).To(Succeed())
+		Expect(dep.Spec.Strategy.RollingUpdate.MaxUnavailable.IntValue()).To(Equal(0))
+		Expect(dep.Spec.Strategy.RollingUpdate.MaxSurge.IntValue()).To(Equal(1))
+		pdb := &policyv1.PodDisruptionBudget{}
+		Eventually(func() error { return k8sClient.Get(ctx, orch, pdb) }, timeout, interval).Should(Succeed())
+		Expect(pdb.Spec.MinAvailable.IntValue()).To(Equal(1))
+		Expect(pdb.Spec.Selector.MatchLabels).To(Equal(dep.Spec.Selector.MatchLabels))
+		Expect(pdb.OwnerReferences[0].Name).To(Equal("platform"))
 
 		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionSecretOnRunners), timeout, interval).Should(haveReason(metav1.ConditionFalse, selfhostedv1alpha1.ReasonOnDemandSecretOnOrchestrator))
 		Eventually(condition(ctx, key, selfhostedv1alpha1.ConditionFleetAvailable), timeout, interval).Should(HaveField("Status", metav1.ConditionFalse))
@@ -93,6 +101,12 @@ var _ = Describe("ClaudeEnvironment on-demand mode", func() {
 		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
 		Expect(got.Status.Mode).To(Equal("onDemand"))
 		Expect(got.Status.OnDemand.OrchestratorReadyReplicas).To(Equal(int32(2)))
+
+		By("dropping the budget once a single replica could not satisfy it")
+		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+		got.Spec.OnDemand.Orchestrator.Replicas = ptr.To[int32](1)
+		Expect(k8sClient.Update(ctx, got)).To(Succeed())
+		Eventually(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, orch, &policyv1.PodDisruptionBudget{})) }, timeout, interval).Should(BeTrue())
 	})
 
 	It("announces FleetAvailable once when the status update that records it conflicts", func() {
@@ -356,7 +370,7 @@ var _ = Describe("ClaudeEnvironment on-demand mode", func() {
 		env.Spec.Fixed = &selfhostedv1alpha1.FixedFleetSpec{Replicas: ptr.To[int32](1)}
 		Expect(k8sClient.Update(ctx, env)).To(Succeed())
 		Eventually(func() error { return k8sClient.Get(ctx, fixedKey, &appsv1.Deployment{}) }, timeout, interval).Should(Succeed())
-		for _, obj := range []client.Object{&appsv1.Deployment{}, &rbacv1.RoleBinding{}, &rbacv1.Role{}, &corev1.ServiceAccount{}} {
+		for _, obj := range []client.Object{&policyv1.PodDisruptionBudget{}, &appsv1.Deployment{}, &rbacv1.RoleBinding{}, &rbacv1.Role{}, &corev1.ServiceAccount{}} {
 			Eventually(func() bool { return apierrors.IsNotFound(k8sClient.Get(ctx, orch, obj)) }, timeout, interval).Should(BeTrue())
 		}
 	})

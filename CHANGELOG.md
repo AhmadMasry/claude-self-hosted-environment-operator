@@ -5,6 +5,18 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The orchestrator Deployment declares its rollout: `maxSurge: 1`, `maxUnavailable: 0` and
+  `minReadySeconds: 5`, so an operator upgrade (which rolls the orchestrator through its hook image) or a
+  Secret rotation retires an old replica only after its replacement has passed the connected probe.
+- A PodDisruptionBudget `<env>-orchestrator` with `minAvailable: 1` whenever `orchestrator.replicas` is 2 or
+  more; removed when the count drops to 1. The manager role gains `policy/poddisruptionbudgets`.
+- The manager releases its leader-election lease on shutdown (`LeaderElectionReleaseOnCancel`), so the
+  replacement pod takes over at once instead of waiting out the lease.
+- The upgrade e2e keeps an on-demand runner pod running across the upgrade and asserts it is the same pod
+  afterwards, and that the orchestrator rollout completes with no surplus replicas.
+
 ### Changed
 
 - The manager Deployment no longer sets a CPU limit by default (the 10m request and the 512Mi memory

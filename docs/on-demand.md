@@ -52,6 +52,23 @@ Readiness is an exec probe, `/etc/claude/hooks/spawn-runner --probe-connected ht
 which exits 0 only when the response body has `"connected": true`, so a replica that has not reached
 Claude receives no sessions. Liveness is an HTTP GET on `/healthz`.
 
+## Orchestrator rollouts
+
+The orchestrator Deployment rolls with `maxSurge: 1` and `maxUnavailable: 0`, and a new pod counts as
+ready only after it has passed the connected probe for `minReadySeconds: 5`. An old replica is retired only
+once its replacement is connected, so a rollout keeps the environment accepting sessions. Rollouts happen
+when the orchestrator settings, the runner image, the environment Secret or the hook image change; the hook
+image is the operator's own, so an operator upgrade rolls every orchestrator once.
+
+With `orchestrator.replicas` at 2 or more, the operator also keeps a PodDisruptionBudget named
+`<env>-orchestrator` with `minAvailable: 1`, so a node drain cannot evict every orchestrator at once. With
+one replica there is no budget, because `minAvailable: 1` would block every drain of that node.
+
+Runner pods are not part of the rollout: each is owned by its ClaudeRunner, carries a single-use work order
+and is never re-created, so sessions in progress survive both an orchestrator rollout and an operator
+upgrade. A work order that the orchestrator was still processing when its pod stopped is redelivered by
+Anthropic; the hook recognises a redelivered order by its ClaudeRunner name and does not spawn twice.
+
 ## Hook contract
 
 The orchestrator runs the hook once per work order. In order:
