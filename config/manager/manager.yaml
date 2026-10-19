@@ -92,11 +92,11 @@ spec:
             port: 8081
           initialDelaySeconds: 5
           periodSeconds: 10
-        # TODO(user): Configure the resources accordingly based on the project requirements.
-        # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+        # No CPU limit: CPU is compressible and a CFS quota only throttles the
+        # manager's bursts (cache sync, rollouts). The chart exposes the block
+        # as manager.resources for clusters whose quota requires one.
         resources:
           limits:
-            cpu: 500m
             memory: 512Mi
           requests:
             cpu: 10m

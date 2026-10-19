@@ -55,7 +55,6 @@ After installing, create a `ClaudeEnvironment`; see the
 | manager.securityContext.allowPrivilegeEscalation | bool | `false` |  |
 | manager.securityContext.capabilities.drop[0] | string | `"ALL"` |  |
 | manager.securityContext.readOnlyRootFilesystem | bool | `true` |  |
-| manager.resources.limits.cpu | string | `"500m"` |  |
 | manager.resources.limits.memory | string | `"512Mi"` |  |
 | manager.resources.requests.cpu | string | `"10m"` |  |
 | manager.resources.requests.memory | string | `"64Mi"` |  |
