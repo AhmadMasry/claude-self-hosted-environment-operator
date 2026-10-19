@@ -5,7 +5,14 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- The manager Deployment no longer sets a CPU limit by default (the 10m request and the 512Mi memory
+  limit stay). CPU is compressible and a CFS quota only throttles the manager's bursts. Set
+  `manager.resources.limits.cpu` in the chart, or patch the Deployment, where a namespace quota
+  requires one. The CRDs and the pods the operator builds never defaulted CPU limits; only the
+  install-hook init container keeps its small fixed resources, overridable via
+  `spec.onDemand.orchestrator.hookInstaller.resources`.
 
 ## [0.1.2] - 2026-10-18
 
