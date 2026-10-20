@@ -108,7 +108,17 @@ Exclude the namespace from the injector, or label the pods out of it. A containe
   output (default `json`). With kustomize, add the flags to the manager container args; with Helm,
   `--set 'manager.args={--leader-elect,--log-level=debug}'`.
 - Runner and orchestrator log level: `runner.settings.logLevel` and `onDemand.orchestrator.logLevel`
-  (`info` or `debug`).
+  (`info` or `debug`). This is the level of the `claude self-hosted-runner` process, not of the Claude Code
+  session it runs: `debug` adds `[DEBUG] [runner:api]` and `[runner:session]` lines (polling, session
+  claim, token issue, spawn, release) to the pod's log, which is what to read when a session never starts,
+  is requeued or is released unexpectedly.
+- Claude Code's own log: each session's child writes a separate debug log under the session's config
+  directory, `<baseDir>/_sessions/<session>.claude-config/claude-code-debug.txt`; when a session fails,
+  the runner prints that path in its log and shows the tail in claude.ai/code. Its level is set through the
+  session's environment, not through `logLevel`: add `CLAUDE_CODE_DEBUG_LOG_LEVEL` (`verbose`, `debug`,
+  `info`, `warn`, `error`; default `debug`) to `runner.env`. `runner.settings.removeSessionState` deletes
+  the file at session end, so leave it off while debugging. To record the prompts a session receives, see
+  [session audit](docs/customization.md#session-audit-prompts-on-the-pods-stdout).
 - Tracing: set an OTLP gRPC endpoint with `--tracing-endpoint` (Helm `tracing.endpoint`; defaults to
   `OTEL_EXPORTER_OTLP_ENDPOINT`) and `--tracing-sample-ratio` (Helm `tracing.sampleRatio`, default 0.1). For
   the hook, set `OTEL_EXPORTER_OTLP_ENDPOINT` through `onDemand.orchestrator.env`; it samples every spawn,
