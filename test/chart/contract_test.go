@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -245,5 +246,81 @@ func TestChartAdmissionPolicyToggle(t *testing.T) {
 	}
 	if find(render(t, "prometheus.enabled=true"), "PodMonitor", "runner-metrics") == nil {
 		t.Fatal("PodMonitor must render when prometheus is enabled")
+	}
+}
+
+// managerRoles returns the rendered manager Roles keyed by namespace.
+func managerRoles(t *testing.T, objs []unstructured.Unstructured) map[string]rbacv1.Role {
+	t.Helper()
+	out := map[string]rbacv1.Role{}
+	for _, o := range objs {
+		if o.GetKind() != "Role" || !strings.HasSuffix(o.GetName(), "manager-role") {
+			continue
+		}
+		var r rbacv1.Role
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(o.Object, &r); err != nil {
+			t.Fatal(err)
+		}
+		if _, dup := out[r.Namespace]; dup {
+			t.Fatalf("manager Role rendered twice in namespace %s", r.Namespace)
+		}
+		out[r.Namespace] = r
+	}
+	return out
+}
+
+func TestChartNamespacedWatchesReleaseNamespaceByDefault(t *testing.T) {
+	objs := render(t, "rbac.namespaced=true")
+	_, mgr := managerPod(t, objs)
+	if got, _ := argValue(mgr.Args, "--watch-namespaces"); got != "ns" {
+		t.Fatalf("--watch-namespaces = %q with rbac.namespaced and no list, want the release namespace", got)
+	}
+	if roles := managerRoles(t, objs); len(roles) != 1 || roles["ns"].Name == "" {
+		t.Fatalf("want the manager Role in the release namespace only, got %v", slices.Collect(maps.Keys(roles)))
+	}
+	_, mgr = managerPod(t, render(t))
+	if got, _ := argValue(mgr.Args, "--watch-namespaces"); got != "" {
+		t.Fatalf("--watch-namespaces = %q with cluster-scoped RBAC, want empty (all namespaces)", got)
+	}
+}
+
+func TestChartNamespacedWatchListGetsRBAC(t *testing.T) {
+	const list = `ns\,team-a\, team-b`
+	objs := render(t, "rbac.namespaced=true", "watchNamespaces="+list)
+	_, mgr := managerPod(t, objs)
+	if got, _ := argValue(mgr.Args, "--watch-namespaces"); got != "ns,team-a, team-b" {
+		t.Fatalf("--watch-namespaces = %q, want the value as given", got)
+	}
+	roles := managerRoles(t, objs)
+	want := []string{"ns", "team-a", "team-b"}
+	if got := slices.Sorted(maps.Keys(roles)); !slices.Equal(got, want) {
+		t.Fatalf("manager Roles in namespaces %v, want %v", got, want)
+	}
+	for _, ns := range want[1:] {
+		if !equality.Semantic.DeepEqual(roles[ns].Rules, roles["ns"].Rules) {
+			t.Fatalf("manager Role in %s differs from the release-namespace Role", ns)
+		}
+		var rb *rbacv1.RoleBinding
+		for _, o := range objs {
+			if o.GetKind() == "RoleBinding" && o.GetNamespace() == ns && strings.HasSuffix(o.GetName(), "manager-rolebinding") {
+				rb = &rbacv1.RoleBinding{}
+				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(o.Object, rb); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if rb == nil {
+			t.Fatalf("no manager RoleBinding in %s", ns)
+		}
+		if rb.RoleRef.Kind != "Role" || rb.RoleRef.Name != roles[ns].Name {
+			t.Fatalf("RoleBinding in %s refers to %s %s, want Role %s", ns, rb.RoleRef.Kind, rb.RoleRef.Name, roles[ns].Name)
+		}
+		if len(rb.Subjects) != 1 || rb.Subjects[0].Kind != "ServiceAccount" || rb.Subjects[0].Namespace != "ns" ||
+			!strings.HasSuffix(rb.Subjects[0].Name, "controller-manager") {
+			t.Fatalf("RoleBinding in %s must bind the manager ServiceAccount in the release namespace: %+v", ns, rb.Subjects)
+		}
+	}
+	if roles := managerRoles(t, render(t, "watchNamespaces="+list)); len(roles) != 0 {
+		t.Fatalf("cluster-scoped RBAC must render no manager Roles, got %v", slices.Collect(maps.Keys(roles)))
 	}
 }

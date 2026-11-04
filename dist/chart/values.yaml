@@ -100,7 +100,7 @@ manager:
 rbac:
   # -- RBAC resource scope
   # - false (default): ClusterRole/ClusterRoleBinding (all namespaces)
-  # - true: Role/RoleBinding (release namespace only)
+  # - true: Role/RoleBinding in the release namespace and in each namespace of watchNamespaces
   namespaced: false
 
   # Helper roles for CRD management (admin/editor/viewer)
@@ -182,8 +182,10 @@ admissionPolicy:
   # false on older clusters.
   enabled: true
 
-# -- Namespaces the manager watches, comma-separated; empty watches all namespaces
-# (manager flag --watch-namespaces).
+# -- Namespaces the manager watches, comma-separated. Empty watches all namespaces, or only
+# the release namespace when rbac.namespaced is true; with rbac.namespaced, each listed
+# namespace other than the release namespace also gets a copy of the manager Role and a
+# RoleBinding, and the namespaces must exist (manager flag --watch-namespaces).
 watchNamespaces: ""
 tracing:
   # -- OTLP gRPC endpoint for traces; empty falls back to $OTEL_EXPORTER_OTLP_ENDPOINT,
