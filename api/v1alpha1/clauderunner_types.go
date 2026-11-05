@@ -49,7 +49,8 @@ func (p RunnerPhase) IsTerminal() bool {
 type ClaudeRunnerSpec struct {
 	// EnvironmentRef names the on-demand ClaudeEnvironment that controls this runner.
 	EnvironmentRef LocalObjectRef `json:"environmentRef"`
-	// OrderID is the work order ID; the ClaudeRunner and its pod are named after it.
+	// OrderID is the work order ID. The ClaudeRunner and its pod are named
+	// <prefix>-<orderID> (builders.RunnerName); the work-order Secret <orderID>-work-order.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	OrderID string `json:"orderID"`

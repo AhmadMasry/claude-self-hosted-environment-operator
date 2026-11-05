@@ -60,6 +60,41 @@ func TestWorkOrderSecretName(t *testing.T) {
 	}
 }
 
+func TestRunnerName(t *testing.T) {
+	uuid := "a00da0f1-e514-5935-917c-e9a94c1930d4"
+	env := func(name, prefix string) *selfhostedv1alpha1.ClaudeEnvironment {
+		return &selfhostedv1alpha1.ClaudeEnvironment{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec:       selfhostedv1alpha1.ClaudeEnvironmentSpec{OnDemand: &selfhostedv1alpha1.OnDemandSpec{RunnerNamePrefix: prefix}},
+		}
+	}
+	cases := []struct {
+		name    string
+		env     *selfhostedv1alpha1.ClaudeEnvironment
+		orderID string
+		want    string
+	}{
+		{"environment name by default", env("platform", ""), uuid, "platform-" + uuid},
+		{"prefix when set", env("platform", "claude-runner"), uuid, "claude-runner-" + uuid},
+		{"fixed mode has no prefix field", &selfhostedv1alpha1.ClaudeEnvironment{ObjectMeta: metav1.ObjectMeta{Name: "fleet"}}, uuid, "fleet-" + uuid},
+		{"long environment name is cut to 63 in all", env(strings.Repeat("e", 40), ""), uuid, strings.Repeat("e", 26) + "-" + uuid},
+		{"a cut never leaves a trailing dash", env(strings.Repeat("e", 25)+"-x", ""), uuid, strings.Repeat("e", 25) + "-" + uuid},
+		{"an order ID with no room stands alone", env("platform", ""), strings.Repeat("o", 62), strings.Repeat("o", 62)},
+		{"an order ID over the limit is left as is", env("platform", ""), strings.Repeat("o", 70), strings.Repeat("o", 70)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := RunnerName(tc.env, tc.orderID)
+			if got != tc.want {
+				t.Fatalf("RunnerName = %q, want %q", got, tc.want)
+			}
+			if len(tc.orderID) < MaxRunnerNameLength && len(got) > MaxRunnerNameLength {
+				t.Fatalf("name %q exceeds %d", got, MaxRunnerNameLength)
+			}
+		})
+	}
+}
+
 func TestOnDemandRunnerPod(t *testing.T) {
 	pod := OnDemandRunnerPod(onDemandEnv(), testRunner(), "h1", nil)
 	if pod.Name != testOrderID || pod.Namespace != testNamespace {

@@ -17,15 +17,43 @@ limitations under the License.
 package builders
 
 import (
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
 )
 
-// WorkOrderSecretName is the Secret holding one order's single-use JWT.
+// WorkOrderSecretName is the Secret holding one order's single-use JWT. It is
+// keyed by the order, not the runner name, so a prefix change never breaks
+// the ClaudeRunner's reference or the admission policy's check.
 func WorkOrderSecretName(orderID string) string {
 	return orderID + selfhostedv1alpha1.WorkOrderSecretSuffix
+}
+
+// MaxRunnerNameLength bounds ClaudeRunner and pod names: the pod name is the
+// hostname, which kubelet truncates past 63 characters.
+const MaxRunnerNameLength = 63
+
+// RunnerName names the ClaudeRunner and its pod for one order:
+// <prefix>-<orderID>, where the prefix is onDemand.runnerNamePrefix or the
+// ClaudeEnvironment name. The prefix is cut, and a trailing dash dropped, so
+// the whole name fits MaxRunnerNameLength; an order ID that leaves no room
+// stands alone. The name must be a pure function of the environment and the
+// order, so a redelivered order finds its ClaudeRunner.
+func RunnerName(env *selfhostedv1alpha1.ClaudeEnvironment, orderID string) string {
+	prefix := env.Name
+	if env.Spec.OnDemand != nil && env.Spec.OnDemand.RunnerNamePrefix != "" {
+		prefix = env.Spec.OnDemand.RunnerNamePrefix
+	}
+	if room := MaxRunnerNameLength - len(orderID) - 1; len(prefix) > room {
+		if room < 1 {
+			return orderID
+		}
+		prefix = strings.TrimRight(prefix[:room], "-")
+	}
+	return prefix + "-" + orderID
 }
 
 // WorkOrderSecretVolume mounts the work-order JWT where the runner expects the

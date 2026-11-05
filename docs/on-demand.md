@@ -11,6 +11,15 @@ For an environment named `<env>` it creates a ServiceAccount, Role, RoleBinding 
 (plus `list` only when `maxConcurrentRunners` is above 0), and `create, patch, delete` on `secrets`.
 Because the manager can only grant what it holds, the manager itself needs `create, patch, delete` on Secrets.
 
+Each work order becomes one ClaudeRunner and one pod, both named `<prefix>-<orderID>`, where the prefix
+is `onDemand.runnerNamePrefix` or, when unset, the environment name: `platform-a00da0f1-e514-5935-917c-e9a94c1930d4`.
+The pod name is also the runner's hostname and so its default `--client-label` in the claude.ai Activity tab
+and the runner metrics. Names stay within the 63 characters a hostname allows: the prefix is cut to fit next
+to the order ID, with no trailing dash, and an order ID that leaves no room stands alone. The work-order
+Secret is `<orderID>-work-order` whatever the prefix. Change the prefix only while no order is in flight: a
+work order redelivered after the change is not recognised under its old name, so a second runner starts and
+fails on the already-used token while the first one continues.
+
 Give each on-demand environment its own namespace. The orchestrator ServiceAccount can create, patch and
 delete any Secret in its namespace, so anything else in that namespace, another environment's secret
 included, is within its reach. The operator narrows what a ClaudeRunner can do with that reach: the API
@@ -73,7 +82,7 @@ Anthropic; the hook recognises a redelivered order by its ClaudeRunner name and 
 
 The orchestrator runs the hook once per work order. In order:
 
-1. If a ClaudeRunner named after the order ID exists, exit 0 with outcome `redelivered`.
+1. If the ClaudeRunner for the order (`<prefix>-<orderID>`, see above) exists, exit 0 with outcome `redelivered`.
 2. If `maxConcurrentRunners` is reached, exit 1 with outcome `at_capacity`. The cap is soft: concurrent hook runs can briefly overshoot it.
 3. Create Secret `<orderID>-work-order` (key `jwt`), then the ClaudeRunner, and make the ClaudeRunner owner of the Secret.
 4. If the runner create fails with a non-retryable error, delete the Secret.

@@ -75,7 +75,7 @@ spec:
       expression: "authorizer.group('claude.cloudeng.ps').resource('claudeenvironments').namespace(request.namespace).name(request.userInfo.username.substring(('system:serviceaccount:' + request.namespace + ':').size(), request.userInfo.username.size() - '-orchestrator'.size())).check('get').allowed()"
   validations:
     - expression: >-
-        object.spec.workOrderSecretRef.name == object.metadata.name + '-work-order' &&
+        object.spec.workOrderSecretRef.name == object.spec.orderID + '-work-order' &&
         has(object.metadata.ownerReferences) &&
         object.metadata.ownerReferences.exists(o,
           o.apiVersion == 'claude.cloudeng.ps/v1alpha1' && o.kind == 'ClaudeEnvironment' &&

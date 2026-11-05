@@ -84,8 +84,9 @@ spec:
                 - name
                 type: object
               orderID:
-                description: OrderID is the work order ID; the ClaudeRunner and its
-                  pod are named after it.
+                description: |-
+                  OrderID is the work order ID. The ClaudeRunner and its pod are named
+                  <prefix>-<orderID> (builders.RunnerName); the work-order Secret <orderID>-work-order.
                 maxLength: 253
                 minLength: 1
                 type: string

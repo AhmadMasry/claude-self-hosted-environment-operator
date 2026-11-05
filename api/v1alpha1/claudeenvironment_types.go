@@ -264,6 +264,13 @@ type OnDemandSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	MaxConcurrentRunners int32 `json:"maxConcurrentRunners,omitempty"`
+	// RunnerNamePrefix names each ClaudeRunner and its pod <prefix>-<orderID>.
+	// Empty means the ClaudeEnvironment name. The prefix is cut so the name
+	// stays within the 63 characters a pod hostname allows.
+	// +kubebuilder:validation:MaxLength=26
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +optional
+	RunnerNamePrefix string `json:"runnerNamePrefix,omitempty"`
 }
 
 // ClaudeEnvironmentSpec defines the desired state of ClaudeEnvironment.

@@ -32,6 +32,10 @@ import (
 
 const odNamespace = "claude-e2e-od"
 
+// orderRunner is the ClaudeRunner and pod the stub orchestrator's hook creates
+// for order e2e-order-1: <environment>-<orderID>.
+const orderRunner = "e2e-od-e2e-order-1"
+
 func kubectlOD(args ...string) (string, error) {
 	return utils.Run(exec.Command("kubectl", append([]string{"-n", odNamespace}, args...)...))
 }
@@ -73,7 +77,7 @@ func onDemandSpecs() {
 
 		It("spawns exactly one runner for the order, runs it to Succeeded, and garbage-collects it", func() {
 			Eventually(func(g Gomega) {
-				out, err := kubectlOD("get", "clauderunner", "e2e-order-1", "-o", "jsonpath={.status.phase}")
+				out, err := kubectlOD("get", "clauderunner", orderRunner, "-o", "jsonpath={.status.phase}")
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(strings.TrimSpace(out)).To(Equal("Running"))
 			}, 2*time.Minute, 3*time.Second).Should(Succeed())
@@ -89,13 +93,13 @@ func onDemandSpecs() {
 			Expect(strings.TrimSpace(out)).To(Equal("1"))
 
 			Eventually(func(g Gomega) {
-				out, err := kubectlOD("get", "clauderunner", "e2e-order-1", "-o", "jsonpath={.status.phase}")
+				out, err := kubectlOD("get", "clauderunner", orderRunner, "-o", "jsonpath={.status.phase}")
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(strings.TrimSpace(out)).To(Equal("Succeeded"))
 			}, 2*time.Minute, 3*time.Second).Should(Succeed())
 
 			Eventually(func(g Gomega) {
-				for _, res := range []string{"clauderunner/e2e-order-1", "pod/e2e-order-1", "secret/e2e-order-1-work-order"} {
+				for _, res := range []string{"clauderunner/" + orderRunner, "pod/" + orderRunner, "secret/e2e-order-1-work-order"} {
 					_, err := kubectlOD("get", res)
 					g.Expect(err).To(HaveOccurred(), res+" should be garbage-collected after the TTL")
 					g.Expect(err.Error()).To(Or(ContainSubstring("NotFound"), ContainSubstring("not found")), res)
@@ -168,7 +172,7 @@ metadata:
       blockOwnerDeletion: true
 spec:
   environmentRef:
-    name: e2e-od
+    name: someone-else
   orderID: other-order
   workOrderSecretRef:
     name: other-order-work-order

@@ -25,7 +25,7 @@ spec:
       - clauderunners
   validations:
   - expression: |-
-      object.spec.workOrderSecretRef.name == object.metadata.name + '-work-order' && has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(o,
+      object.spec.workOrderSecretRef.name == object.spec.orderID + '-work-order' && has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(o,
 
         o.apiVersion == 'claude.cloudeng.ps/v1alpha1' && o.kind == 'ClaudeEnvironment' &&
         has(o.controller) && o.controller && o.name == variables.env &&

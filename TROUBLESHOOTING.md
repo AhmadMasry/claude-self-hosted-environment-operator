@@ -4,7 +4,7 @@ Start with the environment's conditions and events, then the runners':
 
     kubectl -n <ns> describe cenv <env>          # conditions, Warning events
     kubectl -n <ns> get crun                     # on-demand: Phase, Session, Pod, Age
-    kubectl -n <ns> describe crun <orderID>      # status.reason, status.message, events
+    kubectl -n <ns> describe crun <env>-<orderID> # status.reason, status.message, events
     kubectl -n claude-selfhosted-operator-system logs deploy/claude-selfhosted-operator-controller-manager -c manager
 
 Condition and event messages never contain the environment key, a JWT or an email; text taken from a
