@@ -72,7 +72,7 @@ honoured as mounted.
 
 ### A passing run
 
-The run of 2026-10-12 (session ids are real, the pool id is masked by CI), as the script prints it:
+The run of 2026-11-05 (session ids are real, the pool id is masked by CI), as the script prints it:
 
 ```text
 == operator ready
@@ -83,18 +83,18 @@ claudeenvironment.claude.cloudeng.ps/real created
 claudeenvironment.claude.cloudeng.ps/real condition met
   SecretFound=True  FleetAvailable=True (WorkloadAvailable)  Degraded=False  Ready=True
 NAME                    POD-SELECTOR                                                               AGE
-real-egress             claude.cloudeng.ps/environment=real                                        15s
-real-egress-apiserver   claude.cloudeng.ps/environment=real,claude.cloudeng.ps/role=orchestrator   15s
+real-egress             claude.cloudeng.ps/environment=real                                        21s
+real-egress-apiserver   claude.cloudeng.ps/environment=real,claude.cloudeng.ps/role=orchestrator   21s
 == level 2: starting a session
-create: {"ok":true,"session_id":"session_014tWpziKnUXt46SYStUXCoq","title":"Operator-real-e2e-1791838407", ...}
+create: {"ok":true,"session_id":"session_01S8svv4WNHVXWfQUPsZA2LX","title":"Operator real E2E test", ...}
 == level 2: runner lifecycle
 runner phase: Running
 == level 2: reply captured
-{"session_id": "session_014tWpziKnUXt46SYStUXCoq", "reply": "operator-real-e2e-1791838407", "wrapper": "ran"}
+{"session_id": "session_01S8svv4WNHVXWfQUPsZA2LX", "reply": "operator-real-e2e-1793892551", "wrapper": "ran"}
 == level 2: runner reaches Succeeded and is garbage collected
-clauderunner.claude.cloudeng.ps/68c7665b-a8bc-59d7-834d-5cc5ce88bccf condition met
+clauderunner.claude.cloudeng.ps/real-89ecf8b5-b774-5600-844d-130e45a1a08e condition met
 == level 2: post-session lifecycle hook ran
-{"session_id": "session_014tWpziKnUXt46SYStUXCoq", "exit_reason": "interrupted", "env_url": "set"}
+{"session_id": "session_01S8svv4WNHVXWfQUPsZA2LX", "exit_reason": "interrupted", "env_url": "set"}
 == real-environment test passed
 ```
 

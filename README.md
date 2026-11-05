@@ -55,34 +55,34 @@ $ kubectl apply -f environment.yaml
 claudeenvironment.claude.cloudeng.ps/real created
 $ kubectl get -n claude-real-e2e claudeenvironments
 NAME  MODE      READY  REPLICAS  AGE
-real  onDemand  True             15s
+real  onDemand  True              21s
 == start a session on it, from claude.ai or the CLI
-$ claude -p "Reply with exactly the text: operator-real-e2e-1791997021" \
-    --environment "$CLAUDE_ENVIRONMENT_ID" --ref test/readme-visuals --output-format json
-{"ok":true,"session_id":"session_01WsFME7Xbwnr52yqsBt8VZy","title":"Operator real e2e 1791997021", ...}
+$ claude -p "Reply with exactly the text: operator-real-e2e-1793892551" \
+    --environment "$CLAUDE_ENVIRONMENT_ID" --ref master --output-format json
+{"ok":true,"session_id":"session_01S8svv4WNHVXWfQUPsZA2LX","title":"Operator real E2E test", ...}
 == the orchestrator spawned a runner pod for the session
 $ kubectl get -n claude-real-e2e clauderunners,pods -l claude.cloudeng.ps/environment=real
-NAME                                                                  PHASE    SESSION                           POD                                   AGE
-clauderunner.claude.cloudeng.ps/57f5899f-1a39-59bd-b130-33eaa3aa1778  Running  session_01WsFME7Xbwnr52yqsBt8VZy  57f5899f-1a39-59bd-b130-33eaa3aa1778  2s
+NAME                                                                       PHASE    SESSION                           POD                                        AGE
+clauderunner.claude.cloudeng.ps/real-89ecf8b5-b774-5600-844d-130e45a1a08e  Running  session_01S8svv4WNHVXWfQUPsZA2LX  real-89ecf8b5-b774-5600-844d-130e45a1a08e  3s
 
-NAME                                      READY  STATUS   RESTARTS  AGE
-pod/57f5899f-1a39-59bd-b130-33eaa3aa1778  0/1    Running  0         2s
-pod/real-orchestrator-65888d966c-p2jzp    1/1    Running  0         26s
-pod/real-orchestrator-65888d966c-zmnb4    1/1    Running  0         26s
+NAME                                           READY  STATUS   RESTARTS  AGE
+pod/real-89ecf8b5-b774-5600-844d-130e45a1a08e  0/1    Running  0         3s
+pod/real-orchestrator-9cb9c87f7-6q2d5          1/1    Running  0         31s
+pod/real-orchestrator-9cb9c87f7-krl74          1/1    Running  0         31s
 == the session replied and was released: the runner succeeded
 $ kubectl get -n claude-real-e2e clauderunners,pods -l claude.cloudeng.ps/environment=real
-NAME                                                                  PHASE      SESSION                           POD                                   AGE
-clauderunner.claude.cloudeng.ps/57f5899f-1a39-59bd-b130-33eaa3aa1778  Succeeded  session_01WsFME7Xbwnr52yqsBt8VZy  57f5899f-1a39-59bd-b130-33eaa3aa1778  91s
+NAME                                                                       PHASE      SESSION                           POD                                        AGE
+clauderunner.claude.cloudeng.ps/real-89ecf8b5-b774-5600-844d-130e45a1a08e  Succeeded  session_01S8svv4WNHVXWfQUPsZA2LX  real-89ecf8b5-b774-5600-844d-130e45a1a08e  86s
 
-NAME                                      READY  STATUS     RESTARTS  AGE
-pod/57f5899f-1a39-59bd-b130-33eaa3aa1778  0/1    Completed  0         91s
-pod/real-orchestrator-65888d966c-p2jzp    1/1    Running    0         115s
-pod/real-orchestrator-65888d966c-zmnb4    1/1    Running    0         115s
-== two minutes later (runnerTTLSecondsAfterFinished): garbage-collected, only the orchestrator remains
+NAME                                           READY  STATUS     RESTARTS  AGE
+pod/real-89ecf8b5-b774-5600-844d-130e45a1a08e  0/1    Completed  0         86s
+pod/real-orchestrator-9cb9c87f7-6q2d5          1/1    Running    0         114s
+pod/real-orchestrator-9cb9c87f7-krl74          1/1    Running    0         114s
+== runnerTTLSecondsAfterFinished (two minutes) later: garbage-collected, only the orchestrator remains
 $ kubectl get -n claude-real-e2e clauderunners,pods -l claude.cloudeng.ps/environment=real
-NAME                                    READY  STATUS   RESTARTS  AGE
-pod/real-orchestrator-65888d966c-p2jzp  1/1    Running  0         3m56s
-pod/real-orchestrator-65888d966c-zmnb4  1/1    Running  0         3m56s
+NAME                                   READY  STATUS   RESTARTS  AGE
+pod/real-orchestrator-9cb9c87f7-6q2d5  1/1    Running  0         8m58s
+pod/real-orchestrator-9cb9c87f7-krl74  1/1    Running  0         8m58s
 ```
 
 </details>
