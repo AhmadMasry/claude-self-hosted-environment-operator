@@ -29,9 +29,9 @@ for the verification commands.
 
 - Kubernetes 1.30 or later for the `ValidatingAdmissionPolicy` that confines each on-demand
   orchestrator to its own work orders (`admissionPolicy.enabled`); set it to `false` on older clusters.
-- `rbac.namespaced=true` gives the manager a Role in the release namespace instead of a ClusterRole.
-  Install the operator and create the environments in that one namespace, set `watchNamespaces` to it,
-  and set `networkPolicy.apiServerEndpoints` whenever an on-demand environment enables
+- `rbac.namespaced=true` gives the manager a Role in the release namespace instead of a ClusterRole, and
+  the manager then watches that namespace unless `watchNamespaces` lists others; each listed namespace
+  gets its own copy of the Role and a RoleBinding. Set `networkPolicy.apiServerEndpoints` whenever an on-demand environment enables
   `spec.runner.networkPolicy` (a Role cannot read the `default/kubernetes` Endpoints). See
   [namespaced install](https://github.com/AhmadMasry/claude-self-hosted-environment-operator/blob/master/docs/hardening.md#namespaced-install).
 - `prometheus.enabled` needs the Prometheus Operator CRDs (ServiceMonitor and PodMonitor).
@@ -64,7 +64,7 @@ After installing, create a `ClaudeEnvironment`; see the
 | manager.nodeSelector | object | `{}` | Manager pod's node selector |
 | manager.tolerations | list | `[]` | Manager pod's tolerations |
 | manager.terminationGracePeriodSeconds | int | `10` | Termination grace period seconds |
-| rbac.namespaced | bool | `false` | RBAC resource scope - false (default): ClusterRole/ClusterRoleBinding (all namespaces) - true: Role/RoleBinding (release namespace only) |
+| rbac.namespaced | bool | `false` | RBAC resource scope - false (default): ClusterRole/ClusterRoleBinding (all namespaces) - true: Role/RoleBinding in the release namespace and in each namespace of watchNamespaces |
 | rbac.helpers.enabled | bool | `false` | Install convenience admin/editor/viewer roles for CRDs |
 | serviceAccount.enabled | bool | `true` | Install default ServiceAccount provided |
 | crd.enabled | bool | `true` | Install CRDs with the chart |
@@ -79,7 +79,7 @@ After installing, create a `ClaudeEnvironment`; see the
 | networkPolicy.enabled | bool | `false` |  |
 | networkPolicy.apiServerEndpoints | list | `[]` | API server addresses (ip:port, IPv6 bracketed) for the orchestrator egress NetworkPolicy of on-demand environments. Empty reads the default/kubernetes Endpoints, which rbac.namespaced=true does not grant: in that mode this list is required whenever an on-demand environment enables spec.runner.networkPolicy. Find the values with: kubectl get endpoints kubernetes -n default |
 | admissionPolicy.enabled | bool | `true` | Install the ValidatingAdmissionPolicy that confines each on-demand orchestrator ServiceAccount to its own work orders. Needs Kubernetes 1.30 or later; set to false on older clusters. |
-| watchNamespaces | string | `""` | Namespaces the manager watches, comma-separated; empty watches all namespaces (manager flag --watch-namespaces). |
+| watchNamespaces | string | `""` | Namespaces the manager watches, comma-separated. Empty watches all namespaces, or only the release namespace when rbac.namespaced is true; with rbac.namespaced, each listed namespace other than the release namespace also gets a copy of the manager Role and a RoleBinding, and the namespaces must exist (manager flag --watch-namespaces). |
 | tracing.endpoint | string | `""` | OTLP gRPC endpoint for traces; empty falls back to $OTEL_EXPORTER_OTLP_ENDPOINT, and tracing stays off when neither is set (manager flag --tracing-endpoint). |
 | tracing.sampleRatio | float | `0.1` | Fraction of root spans sampled; the manager flag is tracing-sample-ratio. |
 

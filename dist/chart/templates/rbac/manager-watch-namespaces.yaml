@@ -1,0 +1,175 @@
+{{- /*
+With rbac.namespaced=true, every namespace in watchNamespaces other than the
+release namespace gets a copy of the manager Role and a RoleBinding to the
+manager ServiceAccount, so ClaudeEnvironments there need no hand-made RBAC.
+The namespaces must exist. The rules are controller-gen's config/rbac/role.yaml,
+copied here by hack/chart-postprocess.sh.
+*/}}
+{{- if .Values.rbac.namespaced }}
+{{- range $ns := splitList "," (include "claude-selfhosted-operator.watchNamespaces" .) }}
+{{- $ns = trim $ns }}
+{{- if and $ns (ne $ns $.Release.Namespace) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: {{ $ns }}
+  name: {{ include "claude-selfhosted-operator.resourceName" (dict "suffix" "manager-role" "context" $) }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resourceNames:
+  - kubernetes
+  resources:
+  - endpoints
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - claude.cloudeng.ps
+  resources:
+  - claudeenvironments
+  - clauderunners
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - claude.cloudeng.ps
+  resources:
+  - claudeenvironments/finalizers
+  - clauderunners/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - claude.cloudeng.ps
+  resources:
+  - claudeenvironments/status
+  - clauderunners/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  - roles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/name: {{ include "claude-selfhosted-operator.name" $ }}
+    helm.sh/chart: {{ $.Chart.Name }}-{{ $.Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+  name: {{ include "claude-selfhosted-operator.resourceName" (dict "suffix" "manager-rolebinding" "context" $) }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "claude-selfhosted-operator.resourceName" (dict "suffix" "manager-role" "context" $) }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "claude-selfhosted-operator.serviceAccountName" $ }}
+  namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}

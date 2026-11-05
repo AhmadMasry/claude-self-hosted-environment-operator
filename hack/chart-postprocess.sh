@@ -97,7 +97,7 @@ if ! grep -q -- '--hook-image=' "$manager"; then
         print lines[i]
         if (lines[i] ~ /- --health-probe-bind-address=/) {
           print "        - \"--hook-image=" img "\""
-          print "        - \"--watch-namespaces={{ .Values.watchNamespaces }}\""
+          print "        - \"--watch-namespaces={{ include \"claude-selfhosted-operator.watchNamespaces\" . }}\""
           print "        {{- with .Values.tracing.endpoint }}"
           print "        - \"--tracing-endpoint={{ . }}\""
           print "        {{- end }}"
@@ -118,6 +118,74 @@ if ! grep -q -- '--apiserver-endpoints=' "$manager"; then
       print "        {{- end }}"
     }' "$manager" > "$manager.tmp" && mv "$manager.tmp" "$manager"
 fi
+
+# The effective --watch-namespaces: the value, or the release namespace when
+# rbac.namespaced=true leaves it empty (a Role cannot grant the cluster-wide
+# list and watch that an empty flag asks for).
+cat > "$chart/templates/_watch.tpl" <<'EOT'
+{{/*
+Effective --watch-namespaces: the watchNamespaces value, or the release
+namespace when rbac.namespaced=true and the value is empty, since a Role
+cannot grant the cluster-wide list and watch an empty value asks for.
+*/}}
+{{- define "claude-selfhosted-operator.watchNamespaces" -}}
+{{- if .Values.watchNamespaces }}{{ .Values.watchNamespaces }}{{ else if .Values.rbac.namespaced }}{{ .Release.Namespace }}{{ end }}
+{{- end }}
+EOT
+
+# With rbac.namespaced=true, each namespace in the watch list other than the
+# release namespace gets a copy of the manager Role (rules from controller-gen's
+# config/rbac/role.yaml, so they cannot drift from manager-role.yaml) and a
+# RoleBinding to the manager ServiceAccount.
+{
+cat <<'EOT'
+{{- /*
+With rbac.namespaced=true, every namespace in watchNamespaces other than the
+release namespace gets a copy of the manager Role and a RoleBinding to the
+manager ServiceAccount, so ClaudeEnvironments there need no hand-made RBAC.
+The namespaces must exist. The rules are controller-gen's config/rbac/role.yaml,
+copied here by hack/chart-postprocess.sh.
+*/}}
+{{- if .Values.rbac.namespaced }}
+{{- range $ns := splitList "," (include "claude-selfhosted-operator.watchNamespaces" .) }}
+{{- $ns = trim $ns }}
+{{- if and $ns (ne $ns $.Release.Namespace) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: {{ $ns }}
+  name: {{ include "claude-selfhosted-operator.resourceName" (dict "suffix" "manager-role" "context" $) }}
+EOT
+sed -n '/^rules:/,$p' config/rbac/role.yaml
+cat <<'EOT'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/name: {{ include "claude-selfhosted-operator.name" $ }}
+    helm.sh/chart: {{ $.Chart.Name }}-{{ $.Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+  name: {{ include "claude-selfhosted-operator.resourceName" (dict "suffix" "manager-rolebinding" "context" $) }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "claude-selfhosted-operator.resourceName" (dict "suffix" "manager-role" "context" $) }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "claude-selfhosted-operator.serviceAccountName" $ }}
+  namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}
+EOT
+} > "$chart/templates/rbac/manager-watch-namespaces.yaml"
+
+# rbac.namespaced now also covers the watch list.
+sed -i.bak 's|^\(  ##\{0,1\}\) - true: Role/RoleBinding (release namespace only)$|\1 - true: Role/RoleBinding in the release namespace and in each namespace of watchNamespaces|' "$chart/values.yaml" && rm -f "$chart/values.yaml.bak"
 
 # OPERATOR_IMAGE is superseded by --hook-image above; drop the literal the
 # plugin copies from the installer so it cannot drift from manager.image.
@@ -158,8 +226,10 @@ admissionPolicy:
   # false on older clusters.
   enabled: true
 
-# -- Namespaces the manager watches, comma-separated; empty watches all namespaces
-# (manager flag --watch-namespaces).
+## Namespaces the manager watches, comma-separated. Empty watches all namespaces, or only
+## the release namespace when rbac.namespaced is true; with rbac.namespaced, each listed
+## namespace other than the release namespace also gets a copy of the manager Role and a
+## RoleBinding, and the namespaces must exist (manager flag --watch-namespaces).
 watchNamespaces: ""
 tracing:
   # -- OTLP gRPC endpoint for traces; empty falls back to $OTEL_EXPORTER_OTLP_ENDPOINT,

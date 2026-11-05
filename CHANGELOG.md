@@ -14,6 +14,10 @@ All notable changes to this project are recorded here. The format follows
 
 - Dependencies: `k8s.io/utils` 2026-10-23 and Ginkgo 2.34.0; the reply-sink build image digest refreshed
   to the current `golang:1.27`.
+- Chart: with `rbac.namespaced=true`, an empty `watchNamespaces` now makes the manager watch the release
+  namespace instead of asking for every namespace, which a Role cannot grant. When `watchNamespaces` lists
+  other namespaces, the chart installs a copy of the manager Role and a RoleBinding in each of them, so
+  ClaudeEnvironments there need no hand-made RBAC. The namespaces must exist.
 
 ## [0.2.0] - 2026-10-19
 

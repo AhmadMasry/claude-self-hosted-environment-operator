@@ -91,8 +91,9 @@ Exclude the namespace from the injector, or label the pods out of it. A containe
 - The manager log shows `unable to get: <ns>/<name> because of unknown namespace for the cache` when it is
   asked about an object outside the list.
 - The Secret and ConfigMaps an environment references must live in the environment's own namespace.
-- With the chart's `rbac.namespaced=true` the manager gets a Role in the release namespace only: set
-  `watchNamespaces` to that namespace and create environments there. A namespaced Role cannot grant `get`
+- With the chart's `rbac.namespaced=true` the manager gets a Role in the release namespace and in each
+  namespace listed in `watchNamespaces`; an empty list means the release namespace only. An environment
+  elsewhere is both unwatched and unauthorised, so add its namespace to the list. A namespaced Role cannot grant `get`
   on the `default/kubernetes` Endpoints, so in this mode `networkPolicy.apiServerEndpoints` is required
   whenever an on-demand environment sets `spec.runner.networkPolicy.enabled`. Without it those environments
   report `FleetAvailable=False`, reason `WorkloadApplyFailed`, message
