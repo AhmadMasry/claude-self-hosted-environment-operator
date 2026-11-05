@@ -5,6 +5,10 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] - 2026-11-05
+
 ### Security
 
 - Indirect `golang.org/x/net` pinned to 0.62.0 for GO-2026-6860 and GO-2026-6866 (imported, not called);
@@ -162,7 +166,8 @@ section for what that promises.
 
 - The manager's `--zap-*` flags; use `--log-level` and `--log-format`.
 
-[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.0...v0.1.1
