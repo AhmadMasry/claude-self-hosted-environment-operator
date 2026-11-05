@@ -12,6 +12,7 @@ jobs:
       contents: read
     name: e2e
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - name: Clone the code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,6 +43,7 @@ jobs:
       contents: read
     name: upgrade-e2e
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - name: Clone the code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
