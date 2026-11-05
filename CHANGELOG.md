@@ -5,7 +5,15 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Security
+
+- Indirect `golang.org/x/net` pinned to 0.62.0 for GO-2026-6860 and GO-2026-6866 (imported, not called);
+  `govulncheck -test ./...` reports no vulnerabilities.
+
+### Changed
+
+- Dependencies: `k8s.io/utils` 2026-10-23 and Ginkgo 2.34.0; the reply-sink build image digest refreshed
+  to the current `golang:1.27`.
 
 ## [0.2.0] - 2026-10-19
 
