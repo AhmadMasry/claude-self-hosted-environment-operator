@@ -18,6 +18,12 @@ All notable changes to this project are recorded here. The format follows
   namespace instead of asking for every namespace, which a Role cannot grant. When `watchNamespaces` lists
   other namespaces, the chart installs a copy of the manager Role and a RoleBinding in each of them, so
   ClaudeEnvironments there need no hand-made RBAC. The namespaces must exist.
+- On-demand ClaudeRunners and their pods are named `<prefix>-<orderID>`, with the ClaudeEnvironment name
+  as the prefix unless the new `onDemand.runnerNamePrefix` (up to 26 characters) is set, so the runner's
+  hostname and default client label say which environment it serves. The prefix is cut to keep the name
+  within 63 characters. The work-order Secret stays `<orderID>-work-order`; the orchestrator admission
+  policy now checks that reference against `spec.orderID` instead of the object name. See the upgrade notes
+  for the redelivery edge during the upgrade.
 
 ## [0.2.0] - 2026-10-19
 

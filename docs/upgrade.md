@@ -77,6 +77,15 @@ ClaudeRunners created during the handover get their pods as soon as it is in.
 - The orchestrator gets `CLAUDE_OPERATOR_HOOK_TIMEOUT_SECONDS`; an orchestrator still running an older
   pod template without it uses a 60-second timeout, so its hook deadline is 50 seconds until it rolls.
 
+### Notes for the runner-name release
+
+- On-demand ClaudeRunners and their pods are named `<prefix>-<orderID>` (the environment name unless
+  `onDemand.runnerNamePrefix` is set) instead of the bare order ID. Runners in flight keep their names.
+  A work order first delivered before the upgrade and redelivered after it is not recognised under the old
+  name, so a second runner starts and fails on the already-used token while the first one continues.
+  Upgrade while no order is in flight if that matters, and update anything that matched pod names on the
+  order ID alone.
+
 ## Rollback
 
 - Installer: apply the previous release's `install.yaml` with `kubectl apply --server-side`. The CRDs

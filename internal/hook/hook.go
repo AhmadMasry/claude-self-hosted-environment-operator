@@ -60,22 +60,23 @@ func NewScheme() *runtime.Scheme {
 }
 
 // Run performs the single idempotent spawn: create the work-order Secret, then
-// the ClaudeRunner named after the order ID, then hand the Secret to the
-// ClaudeRunner for garbage collection.
+// the ClaudeRunner named builders.RunnerName(env, orderID), then hand the
+// Secret to the ClaudeRunner for garbage collection.
 func Run(ctx context.Context, c client.Client, in Input, jwt []byte, traceparent string) Result {
 	env := &selfhostedv1alpha1.ClaudeEnvironment{}
 	if err := c.Get(ctx, types.NamespacedName{Name: in.Environment, Namespace: in.Namespace}, env); err != nil {
 		return failure(fmt.Errorf("get ClaudeEnvironment %s/%s: %w", in.Namespace, in.Environment, err))
 	}
 
+	name := builders.RunnerName(env, in.OrderID)
 	existing := &selfhostedv1alpha1.ClaudeRunner{}
-	switch err := c.Get(ctx, types.NamespacedName{Name: in.OrderID, Namespace: in.Namespace}, existing); {
+	switch err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: in.Namespace}, existing); {
 	case err == nil:
-		res := Result{ExitCode: ExitSubmitted, Outcome: "redelivered", RunnerName: in.OrderID}
+		res := Result{ExitCode: ExitSubmitted, Outcome: "redelivered", RunnerName: name}
 		res.Warning = handOffSecret(ctx, c, existing, builders.WorkOrderSecretName(in.OrderID))
 		return res
 	case !apierrors.IsNotFound(err):
-		return failure(fmt.Errorf("get ClaudeRunner %s/%s: %w", in.Namespace, in.OrderID, err))
+		return failure(fmt.Errorf("get ClaudeRunner %s/%s: %w", in.Namespace, name, err))
 	}
 
 	if in.MaxConcurrentRunners > 0 {
@@ -109,7 +110,7 @@ func Run(ctx context.Context, c client.Client, in Input, jwt []byte, traceparent
 	}
 
 	runner := &selfhostedv1alpha1.ClaudeRunner{
-		ObjectMeta: metav1.ObjectMeta{Name: in.OrderID, Namespace: in.Namespace, Labels: maps.Clone(labels), OwnerReferences: []metav1.OwnerReference{*envRef}},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: in.Namespace, Labels: maps.Clone(labels), OwnerReferences: []metav1.OwnerReference{*envRef}},
 		Spec: selfhostedv1alpha1.ClaudeRunnerSpec{
 			EnvironmentRef:     selfhostedv1alpha1.LocalObjectRef{Name: in.Environment},
 			OrderID:            in.OrderID,
@@ -127,7 +128,7 @@ func Run(ctx context.Context, c client.Client, in Input, jwt []byte, traceparent
 	}
 	if err := c.Create(ctx, runner); err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			return Result{ExitCode: ExitSubmitted, Outcome: "redelivered", RunnerName: in.OrderID}
+			return Result{ExitCode: ExitSubmitted, Outcome: "redelivered", RunnerName: name}
 		}
 		res := failure(fmt.Errorf("create ClaudeRunner: %w", err))
 		if res.ExitCode == ExitNonRetryable {
@@ -141,7 +142,7 @@ func Run(ctx context.Context, c client.Client, in Input, jwt []byte, traceparent
 
 	// Hand the Secret to the ClaudeRunner so it is collected with it. Best
 	// effort: the environment owner reference already guarantees collection.
-	return Result{ExitCode: ExitSubmitted, Outcome: "submitted", RunnerName: in.OrderID,
+	return Result{ExitCode: ExitSubmitted, Outcome: "submitted", RunnerName: name,
 		Warning: handOffSecret(ctx, c, runner, secretName)}
 }
 

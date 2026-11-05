@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
 )
 
 const (
@@ -113,7 +114,7 @@ func TestRunSubmitsSecretAndRunner(t *testing.T) {
 		t.Fatalf("unexpected result %+v", res)
 	}
 	runner := &selfhostedv1alpha1.ClaudeRunner{}
-	if err := c.Get(ctx, types.NamespacedName{Name: testOrder, Namespace: testNS}, runner); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{Name: builders.RunnerName(envObj(), testOrder), Namespace: testNS}, runner); err != nil {
 		t.Fatal(err)
 	}
 	if runner.Spec.OrderID != testOrder || runner.Spec.SessionID != testSession || runner.Spec.AccountID != "user_1" ||
@@ -140,7 +141,7 @@ func TestRunSubmitsSecretAndRunner(t *testing.T) {
 	if string(secret.Data[selfhostedv1alpha1.WorkOrderSecretKey]) != "eyJ.fake.jwt" {
 		t.Fatal("jwt not stored under the jwt key")
 	}
-	if len(secret.OwnerReferences) != 1 || secret.OwnerReferences[0].Kind != "ClaudeRunner" || secret.OwnerReferences[0].Name != testOrder {
+	if len(secret.OwnerReferences) != 1 || secret.OwnerReferences[0].Kind != "ClaudeRunner" || secret.OwnerReferences[0].Name != builders.RunnerName(envObj(), testOrder) {
 		t.Fatalf("secret must be handed to the runner: %+v", secret.OwnerReferences)
 	}
 	if secret.OwnerReferences[0].Controller == nil || !*secret.OwnerReferences[0].Controller || secret.OwnerReferences[0].BlockOwnerDeletion != nil {
@@ -256,7 +257,7 @@ func TestWriteLogNeverPrintsSecrets(t *testing.T) {
 
 func TestRunRedeliveryAtCapacityStillExitsZero(t *testing.T) {
 	ctx := context.Background()
-	own := &selfhostedv1alpha1.ClaudeRunner{ObjectMeta: metav1.ObjectMeta{Name: testOrder, Namespace: testNS,
+	own := &selfhostedv1alpha1.ClaudeRunner{ObjectMeta: metav1.ObjectMeta{Name: builders.RunnerName(envObj(), testOrder), Namespace: testNS,
 		Labels: map[string]string{selfhostedv1alpha1.LabelEnvironment: testEnvName}},
 		Spec:   selfhostedv1alpha1.ClaudeRunnerSpec{EnvironmentRef: selfhostedv1alpha1.LocalObjectRef{Name: testEnvName}, OrderID: testOrder, WorkOrderSecretRef: selfhostedv1alpha1.LocalObjectRef{Name: testOrder + "-work-order"}},
 		Status: selfhostedv1alpha1.ClaudeRunnerStatus{Phase: selfhostedv1alpha1.RunnerRunning}}
@@ -332,7 +333,7 @@ func TestRunLabelsSecretAndRunnerIndependently(t *testing.T) {
 		selfhostedv1alpha1.LabelSessionID:   testSession,
 	}
 	runner := &selfhostedv1alpha1.ClaudeRunner{}
-	if err := c.Get(ctx, types.NamespacedName{Name: in.OrderID, Namespace: testNS}, runner); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{Name: builders.RunnerName(envObj(), in.OrderID), Namespace: testNS}, runner); err != nil {
 		t.Fatal(err)
 	}
 	secret := &corev1.Secret{}

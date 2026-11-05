@@ -168,7 +168,7 @@ metadata:
       blockOwnerDeletion: true
 spec:
   environmentRef:
-    name: e2e-od
+    name: someone-else
   orderID: other-order
   workOrderSecretRef:
     name: other-order-work-order
