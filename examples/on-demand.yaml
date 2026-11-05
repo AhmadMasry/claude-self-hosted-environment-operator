@@ -42,3 +42,6 @@ spec:
           limits: {memory: 512Mi}
     runnerTTLSecondsAfterFinished: 300
     maxConcurrentRunners: 50
+    # ClaudeRunners and their pods are named <prefix>-<orderID>; the prefix
+    # defaults to the ClaudeEnvironment name (here "platform").
+    # runnerNamePrefix: claude-runner

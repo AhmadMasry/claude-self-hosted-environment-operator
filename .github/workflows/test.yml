@@ -61,6 +61,7 @@ jobs:
         run: |
           go mod tidy
           make manifests generate helm-chart
+          hack/chart-postprocess.sh   # a second run must be a no-op
           git diff --exit-code -- go.mod go.sum api config dist
 
   race:

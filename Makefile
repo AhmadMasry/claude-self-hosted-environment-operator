@@ -88,8 +88,11 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 	esac
 
 .PHONY: test-e2e
+# The e2e binaries outgrow go test's default 10m on a busy runner; a genuine
+# hang is still bounded by this value and the workflow's job timeout.
+E2E_TIMEOUT ?= 30m
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v -timeout $(E2E_TIMEOUT)
 	$(MAKE) cleanup-test-e2e
 
 # On a PR the merge-base with master is the previous revision; on a master push it equals HEAD, so use the previous commit.
@@ -98,7 +101,7 @@ UPGRADE_FROM ?= $(shell b=$$(git merge-base origin/master HEAD 2>/dev/null || tr
 test-e2e-upgrade: setup-test-e2e manifests generate fmt vet ## Run e2e including the upgrade specs from UPGRADE_FROM (default: merge-base with master).
 	hack/build-previous.sh $(UPGRADE_FROM) example.com/claude-selfhosted-operator:previous $(CURDIR)/bin/previous
 	UPGRADE_FROM_INSTALLER=$(CURDIR)/bin/previous/install.yaml UPGRADE_FROM_IMAGE=example.com/claude-selfhosted-operator:previous \
-		KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags e2e ./test/e2e/ -v -ginkgo.v
+		KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags e2e ./test/e2e/ -v -ginkgo.v -timeout $(E2E_TIMEOUT)
 	$(MAKE) cleanup-test-e2e
 
 .PHONY: cleanup-test-e2e

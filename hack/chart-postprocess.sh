@@ -263,12 +263,17 @@ chart_meta
 # The plugin comments values with "## text" blocks; helm-docs reads "# -- text"
 # (continuation lines "# text"). Convert each block that precedes a value, and
 # keep blocks that precede a commented-out example or a blank line as plain
-# comments. Idempotent: lines already in "# --" form are left alone.
+# comments. Idempotent: a "# --" line and the "# text" lines that follow it
+# are a converted block and pass through untouched, so a second run (CI runs
+# the script twice) changes nothing.
 awk '
   function emit(desc,    i) {
     for (i = 1; i <= n; i++) print ind (i == 1 && desc ? "# -- " : "# ") buf[i]
     n = 0
   }
+  /^[ \t]*# -- / { conv = 1; print; next }
+  conv && /^[ \t]*# / { print; next }
+  { conv = 0 }
   /^[ \t]*##([ \t]|$)/ || /^[ \t]*# [A-Z]/ {
     # "## text" blocks, and single-hash prose ("# Capitalised text", never a
     # commented-out key, which is lower-case).
