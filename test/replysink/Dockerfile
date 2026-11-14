@@ -1,11 +1,11 @@
-FROM golang:1.27@sha256:c292963ad0e5f51e843c726edc204a4e4c26a859ba1e4d736d91028aa3633048 AS build
+FROM golang:1.27@sha256:ec47ea3725fea0cc88f6de94919aef19f40f12fc1ec0e2d1b3426dbf15ecca04 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY test/replysink ./test/replysink
 RUN CGO_ENABLED=0 go build -trimpath -o /out/replysink ./test/replysink
 
-FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+FROM gcr.io/distroless/static:nonroot@sha256:aafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931
 COPY --from=build /out/replysink /replysink
 USER 65532:65532
 ENTRYPOINT ["/replysink"]

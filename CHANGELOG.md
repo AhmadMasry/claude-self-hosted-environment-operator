@@ -5,7 +5,11 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- Release and CI workflow actions: cosign-installer 4.1.3, action-gh-release 3.0.4, setup-helm 5.1.0 and
+  docker/login-action 4.8.0; the reply-sink test image digests refreshed to the current `golang:1.27` and
+  distroless `static:nonroot`.
 
 ## [0.3.0] - 2026-11-05
 
