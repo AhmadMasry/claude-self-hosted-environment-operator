@@ -112,6 +112,23 @@ type faultClient struct {
 	client.Client
 	beforeStatusUpdate      atomic.Pointer[func(client.Object)]
 	failNetworkPolicyDelete atomic.Bool
+	hiddenEnvironment       atomic.Pointer[client.ObjectKey]
+}
+
+// hideEnvironment makes Get report the ClaudeEnvironment at key as NotFound
+// until the spec ends, as an informer that has not seen it yet would.
+func (c *faultClient) hideEnvironment(key client.ObjectKey) {
+	c.hiddenEnvironment.Store(&key)
+	DeferCleanup(func() { c.hiddenEnvironment.Store(nil) })
+}
+
+func (c *faultClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(*selfhostedv1alpha1.ClaudeEnvironment); ok {
+		if hidden := c.hiddenEnvironment.Load(); hidden != nil && *hidden == key {
+			return apierrors.NewNotFound(selfhostedv1alpha1.GroupVersion.WithResource("claudeenvironments").GroupResource(), key.Name)
+		}
+	}
+	return c.Client.Get(ctx, key, obj, opts...)
 }
 
 // onStatusUpdate installs hook until the spec ends.

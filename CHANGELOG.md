@@ -5,6 +5,12 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A ClaudeRunner created moments after its ClaudeEnvironment is no longer failed with `EnvironmentMissing`
+  when the manager's cache has not seen the environment yet: the controller confirms with the API server
+  before it fails the runner.
+
 ### Changed
 
 - Release and CI workflow actions: cosign-installer 4.1.3, action-gh-release 3.0.4, setup-helm 5.1.0 and
