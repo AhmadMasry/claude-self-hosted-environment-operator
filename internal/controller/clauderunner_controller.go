@@ -51,7 +51,8 @@ const (
 type ClaudeRunnerReconciler struct {
 	client.Client
 	// Reader is an uncached reader for decisions a lagging informer must not
-	// make: whether the work-order Secret exists and whether the pod is gone.
+	// make: whether the environment or the work-order Secret exists and
+	// whether the pod is gone.
 	Reader   client.Reader
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
@@ -122,8 +123,8 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		return r.expire(ctx, runner)
 	}
 
-	env := &selfhostedv1alpha1.ClaudeEnvironment{}
-	if err := r.Get(ctx, types.NamespacedName{Name: runner.Spec.EnvironmentRef.Name, Namespace: runner.Namespace}, env); err != nil {
+	env, err := r.environment(ctx, runner)
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			r.fail(runner, selfhostedv1alpha1.ReasonEnvironmentMissing, fmt.Sprintf("ClaudeEnvironment %q not found", runner.Spec.EnvironmentRef.Name))
 			return ctrl.Result{}, nil
@@ -132,7 +133,6 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 	}
 	wasRunning := runner.Status.Phase == selfhostedv1alpha1.RunnerRunning
 	var pod *corev1.Pod
-	var err error
 	if runner.Status.PodName == "" {
 		if msg := ownerMismatch(runner, env); msg != "" {
 			r.fail(runner, selfhostedv1alpha1.ReasonEnvironmentMismatch, msg)
@@ -244,6 +244,20 @@ func ownerMismatch(runner *selfhostedv1alpha1.ClaudeRunner, env *selfhostedv1alp
 		return fmt.Sprintf("ClaudeEnvironment %q is not in on-demand mode", env.Name)
 	}
 	return ""
+}
+
+// environment returns the ClaudeEnvironment the runner names. The cache answers
+// first; a cached NotFound is confirmed with the API server, because the
+// informer can lag behind an environment created moments before its runner and
+// EnvironmentMissing is terminal.
+func (r *ClaudeRunnerReconciler) environment(ctx context.Context, runner *selfhostedv1alpha1.ClaudeRunner) (*selfhostedv1alpha1.ClaudeEnvironment, error) {
+	key := types.NamespacedName{Name: runner.Spec.EnvironmentRef.Name, Namespace: runner.Namespace}
+	env := &selfhostedv1alpha1.ClaudeEnvironment{}
+	err := r.Get(ctx, key, env)
+	if apierrors.IsNotFound(err) {
+		err = r.Reader.Get(ctx, key, env)
+	}
+	return env, err
 }
 
 // awaitWorkOrder confirms, before the pod exists, that the work-order Secret

@@ -7,6 +7,20 @@ All notable changes to this project are recorded here. The format follows
 
 Nothing yet.
 
+## [0.3.1] - 2026-11-14
+
+### Fixed
+
+- A ClaudeRunner created moments after its ClaudeEnvironment is no longer failed with `EnvironmentMissing`
+  when the manager's cache has not seen the environment yet: the controller confirms with the API server
+  before it fails the runner.
+
+### Changed
+
+- Release and CI workflow actions: cosign-installer 4.1.3, action-gh-release 3.0.4, setup-helm 5.1.0 and
+  docker/login-action 4.8.0; the reply-sink test image digests refreshed to the current `golang:1.27` and
+  distroless `static:nonroot`.
+
 ## [0.3.0] - 2026-11-05
 
 ### Security
@@ -166,7 +180,8 @@ section for what that promises.
 
 - The manager's `--zap-*` flags; use `--log-level` and `--log-format`.
 
-[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.1...v0.1.2

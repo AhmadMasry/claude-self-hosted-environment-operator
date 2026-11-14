@@ -521,6 +521,24 @@ var _ = Describe("ClaudeRunner controller", func() {
 		Expect(got.Status.Reason).To(Equal(selfhostedv1alpha1.ReasonEnvironmentMissing))
 	})
 
+	It("starts a runner whose environment the cache has not seen yet", func() {
+		ns := newNamespace(ctx)
+		env := onDemandEnvObj(ns)
+		// The informer can lag behind an environment created moments before its
+		// runner: the cached read says NotFound while the API server has it.
+		runnerClient.hideEnvironment(client.ObjectKeyFromObject(env))
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		Expect(k8sClient.Create(ctx, hookWorkOrder(env, "order-19"))).To(Succeed())
+		r := ownedBy(runnerObj(ns, "order-19"), env)
+		Expect(k8sClient.Create(ctx, r)).To(Succeed())
+		key := client.ObjectKeyFromObject(r)
+		Eventually(func() error { return k8sClient.Get(ctx, key, &corev1.Pod{}) }, timeout, interval).Should(Succeed())
+		got := &selfhostedv1alpha1.ClaudeRunner{}
+		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+		Expect(got.Status.Phase.IsTerminal()).To(BeFalse())
+		Expect(got.Status.Reason).NotTo(Equal(selfhostedv1alpha1.ReasonEnvironmentMissing))
+	})
+
 	It("deletes the pod before the runner object disappears", func() {
 		ns := newNamespace(ctx)
 		env := onDemandEnvObj(ns)
