@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/authz"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
 )
 
@@ -42,13 +43,26 @@ const (
 	ExitNonRetryable = 2
 )
 
+// Authorization values of Result: how the environment's access list judged the
+// session creator.
+const (
+	AuthorizationAllowed = "allowed"
+	AuthorizationDenied  = "denied"
+	// AuthorizationAuditDenied is an account the list does not allow, let
+	// through because the environment's mode is Audit.
+	AuthorizationAuditDenied = "audit_denied"
+)
+
 // Result is the hook's outcome.
 type Result struct {
-	ExitCode   int
-	Outcome    string // submitted | redelivered | at_capacity | error
-	RunnerName string
-	Warning    string // non-fatal follow-up problems, e.g. the owner hand-off patch failed
-	Err        error
+	ExitCode int
+	Outcome  string // submitted | redelivered | at_capacity | denied | error
+	// Authorization is allowed, denied or audit_denied; empty when the
+	// environment has no access list or it could not be read.
+	Authorization string
+	RunnerName    string
+	Warning       string // non-fatal follow-up problems, e.g. the owner hand-off patch failed
+	Err           error
 }
 
 // NewScheme has the core and operator types the hook touches.
@@ -59,15 +73,52 @@ func NewScheme() *runtime.Scheme {
 	return s
 }
 
-// Run performs the single idempotent spawn: create the work-order Secret, then
-// the ClaudeRunner named builders.RunnerName(env, orderID), then hand the
-// Secret to the ClaudeRunner for garbage collection.
+// Run checks the session creator against the environment's access list, when
+// it has one, and then performs the spawn. A refused creator ends the run
+// before anything is created: the exit code tells Anthropic not to retry, and
+// the message is shown with the failed session. A list that cannot be read
+// refuses nobody for good: in Enforce mode the run ends retryable, in Audit
+// mode it goes on with a warning.
 func Run(ctx context.Context, c client.Client, in Input, jwt []byte, traceparent string) Result {
 	env := &selfhostedv1alpha1.ClaudeEnvironment{}
 	if err := c.Get(ctx, types.NamespacedName{Name: in.Environment, Namespace: in.Namespace}, env); err != nil {
 		return failure(fmt.Errorf("get ClaudeEnvironment %s/%s: %w", in.Namespace, in.Environment, err))
 	}
+	authorization, warning := "", ""
+	if env.Spec.Authorization != nil {
+		enforced := authz.Enforced(env)
+		d, err := authz.Check(ctx, c, env, in.AccountID)
+		switch {
+		case err != nil && enforced:
+			// Not a verdict: nothing is spawned and Anthropic asks again, also
+			// for a rejection such as Forbidden, which the orchestrator Role
+			// returns until it has caught up with a change of the list's name.
+			return Result{ExitCode: ExitRetryable, Outcome: "error", Err: fmt.Errorf("read the access list: %w", err)}
+		case err != nil:
+			warning = "could not read the access list: " + err.Error()
+		case d.Allowed:
+			authorization = AuthorizationAllowed
+		case enforced:
+			return Result{ExitCode: ExitNonRetryable, Outcome: "denied", Authorization: AuthorizationDenied, Err: errors.New(d.Message)}
+		default:
+			authorization = AuthorizationAuditDenied
+		}
+	}
+	res := spawn(ctx, c, in, env, jwt, traceparent)
+	res.Authorization = authorization
+	if warning != "" && res.Warning != "" {
+		warning += "; " + res.Warning
+	}
+	if warning != "" {
+		res.Warning = warning
+	}
+	return res
+}
 
+// spawn performs the single idempotent spawn: create the work-order Secret,
+// then the ClaudeRunner named builders.RunnerName(env, orderID), then hand the
+// Secret to the ClaudeRunner for garbage collection.
+func spawn(ctx context.Context, c client.Client, in Input, env *selfhostedv1alpha1.ClaudeEnvironment, jwt []byte, traceparent string) Result {
 	name := builders.RunnerName(env, in.OrderID)
 	existing := &selfhostedv1alpha1.ClaudeRunner{}
 	switch err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: in.Namespace}, existing); {

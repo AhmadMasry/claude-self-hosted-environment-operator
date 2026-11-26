@@ -45,3 +45,10 @@ spec:
     # ClaudeRunners and their pods are named <prefix>-<orderID>; the prefix
     # defaults to the ClaudeEnvironment name (here "platform").
     # runnerNamePrefix: claude-runner
+  # Run sessions only for the accounts listed in examples/access-list-configmap.yaml
+  # (docs/authorization.md). Needs orchestrator.minIdle: 0. Start with mode: Audit
+  # to see who would be refused.
+  # authorization:
+  #   mode: Enforce
+  #   allowedAccountsFrom:
+  #     configMapKeyRef: {name: platform-access, key: accounts}

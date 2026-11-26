@@ -37,6 +37,10 @@ const (
 	OutcomeSucceeded    = "succeeded"
 	OutcomeFailed       = "failed"
 	OutcomeSpawnTimeout = "spawn_timeout"
+	// OutcomeUnauthorized counts runners the access list refused, before the
+	// pod or while it ran. The hook refuses most sessions before a runner
+	// exists; those appear in the hook's log line only.
+	OutcomeUnauthorized = "unauthorized"
 )
 
 var (
@@ -63,7 +67,7 @@ var (
 	}, []string{labelNamespace, labelEnvironment})
 	runnersTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "claude_operator_runners_total",
-		Help: "On-demand runner lifecycle events by outcome (created, succeeded, failed, spawn_timeout).",
+		Help: "On-demand runner lifecycle events by outcome (created, succeeded, failed, spawn_timeout, unauthorized).",
 	}, []string{labelNamespace, labelEnvironment, labelOutcome})
 )
 

@@ -113,6 +113,8 @@ type ClaudeRunnerStatus struct {
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Session",type=string,JSONPath=`.spec.sessionID`
 // +kubebuilder:printcolumn:name="Pod",type=string,JSONPath=`.status.podName`
+// +kubebuilder:printcolumn:name="Account",type=string,JSONPath=`.spec.accountID`,priority=1
+// +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.reason`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // ClaudeRunner is one spawned on-demand runner. It is created by the

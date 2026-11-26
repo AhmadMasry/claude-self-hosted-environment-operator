@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/authz"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/metrics"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/telemetry"
@@ -62,7 +63,10 @@ const (
 	defaultHookTimeoutSeconds = 60
 
 	indexSecretName     = "spec.environmentSecretRef.name"
-	indexConfigMapNames = "spec.runner.configMapNames"
+	indexConfigMapNames = "spec.configMapNames"
+
+	// maxReportedLines caps the line numbers an AccessListInvalid message lists.
+	maxReportedLines = 10
 )
 
 // ClaudeEnvironmentReconciler reconciles a ClaudeEnvironment object.
@@ -171,6 +175,9 @@ func (r *ClaudeEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 }
 
 func (r *ClaudeEnvironmentReconciler) reconcile(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) (ctrl.Result, error) {
+	if err := r.reportAccessList(ctx, env, pass); err != nil {
+		return ctrl.Result{}, err
+	}
 	secret, ok, err := r.resolveSecret(ctx, env, pass)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -295,6 +302,63 @@ func (r *ClaudeEnvironmentReconciler) resolveSecret(ctx context.Context, env *se
 	}
 	pass.set(selfhostedv1alpha1.ConditionSecretFound, metav1.ConditionTrue, selfhostedv1alpha1.ReasonSecretFound, "")
 	return secret, true, nil
+}
+
+// reportAccessList publishes whether the environment restricts who may use it,
+// and degrades it when the access list is missing or holds lines that are not
+// account IDs. It only reports: the spawn-runner hook and the ClaudeRunner
+// controller make the decisions, from an uncached read.
+func (r *ClaudeEnvironmentReconciler) reportAccessList(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) error {
+	if env.Spec.Authorization == nil {
+		meta.RemoveStatusCondition(&env.Status.Conditions, selfhostedv1alpha1.ConditionAccessRestricted)
+		return nil
+	}
+	list, err := authz.Load(ctx, r.Client, env)
+	if err != nil {
+		return err
+	}
+	ref := env.Spec.Authorization.AllowedAccountsFrom.ConfigMapKeyRef
+	enforced := authz.Enforced(env)
+	switch {
+	case list.Missing != "" && enforced:
+		pass.degradeOnce(r.Recorder, env, selfhostedv1alpha1.ReasonAccessListMissing, list.Missing+": every session is refused")
+	case list.Missing != "":
+		pass.degradeOnce(r.Recorder, env, selfhostedv1alpha1.ReasonAccessListMissing, list.Missing)
+	case len(list.InvalidLines) > 0:
+		pass.degradeOnce(r.Recorder, env, selfhostedv1alpha1.ReasonAccessListInvalid,
+			fmt.Sprintf("ConfigMap %q key %q: %s", ref.Name, ref.Key, invalidLines(list.InvalidLines)))
+	}
+	noun := "accounts"
+	if list.Len() == 1 {
+		noun = "account"
+	}
+	msg := fmt.Sprintf("%d %s allowed by ConfigMap %q key %q", list.Len(), noun, ref.Name, ref.Key)
+	if enforced {
+		pass.set(selfhostedv1alpha1.ConditionAccessRestricted, metav1.ConditionTrue, selfhostedv1alpha1.ReasonAccessListEnforced, msg)
+	} else {
+		pass.set(selfhostedv1alpha1.ConditionAccessRestricted, metav1.ConditionFalse, selfhostedv1alpha1.ReasonAccessListAudited,
+			msg+"; audit mode refuses nobody")
+	}
+	return nil
+}
+
+// invalidLines says which lines of an access list are ignored, naming at most
+// maxReportedLines. The lines' text is never reported: a mistyped entry is
+// often an email address.
+func invalidLines(lines []int) string {
+	if len(lines) == 1 {
+		return fmt.Sprintf("line %d is not an account ID (user_...) and is ignored", lines[0])
+	}
+	shown := lines[:min(len(lines), maxReportedLines)]
+	parts := make([]string, 0, len(shown))
+	for _, n := range shown {
+		parts = append(parts, fmt.Sprint(n))
+	}
+	out := "lines " + strings.Join(parts, ", ")
+	if more := len(lines) - len(shown); more > 0 {
+		out += fmt.Sprintf(" and %d more", more)
+	}
+	return out + " are not account IDs (user_...) and are ignored"
 }
 
 // configMapRefs lists the ConfigMaps a runner spec references, with the key a
@@ -685,10 +749,16 @@ func (r *ClaudeEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &selfhostedv1alpha1.ClaudeEnvironment{}, indexConfigMapNames, func(o client.Object) []string {
-		refs := configMapRefs(o.(*selfhostedv1alpha1.ClaudeEnvironment).Spec.Runner)
-		names := make([]string, 0, len(refs))
+		env := o.(*selfhostedv1alpha1.ClaudeEnvironment)
+		refs := configMapRefs(env.Spec.Runner)
+		names := make([]string, 0, len(refs)+1)
 		for n := range refs {
 			names = append(names, n)
+		}
+		// The access list is watched like the runner's ConfigMaps but is not
+		// one of them: it never enters the pod or the config hash.
+		if a := env.Spec.Authorization; a != nil && !slices.Contains(names, a.AllowedAccountsFrom.ConfigMapKeyRef.Name) {
+			names = append(names, a.AllowedAccountsFrom.ConfigMapKeyRef.Name)
 		}
 		return names
 	}); err != nil {

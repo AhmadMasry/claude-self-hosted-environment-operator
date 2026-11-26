@@ -3,7 +3,7 @@
 Start with the environment's conditions and events, then the runners':
 
     kubectl -n <ns> describe cenv <env>          # conditions, Warning events
-    kubectl -n <ns> get crun                     # on-demand: Phase, Session, Pod, Age
+    kubectl -n <ns> get crun                     # on-demand: Phase, Session, Pod, Age (-o wide: Account, Reason)
     kubectl -n <ns> describe crun <env>-<orderID> # status.reason, status.message, events
     kubectl -n claude-selfhosted-operator-system logs deploy/claude-selfhosted-operator-controller-manager -c manager
 
@@ -23,6 +23,9 @@ pod's termination message is redacted and truncated.
 | `Degraded=True`, `RunnerFailedStart: pod <pod> restarted <n> times with runs under 1m0s; last run: <line>` | A runner exits non-zero within a minute of starting, at least 3 times, most recently within 10 minutes (the product's definition of a failed start). `<line>` is the last `[runner:fatal]` or `error:` line of the termination message, redacted; or `no termination message; run kubectl logs --previous on the pod` | `kubectl -n <ns> logs <pod> -c runner --previous`. Typical: a revoked or wrong environment key, an unwritable `baseDir`, a wrapper script that exits |
 | `FleetAvailable=False`, reason `HookImageUnset` (also in `Degraded`), message `operator has no hook image configured; set --hook-image or OPERATOR_IMAGE on the manager` | On-demand mode needs the operator image for the hook init container | The installer and chart set it; for a custom deployment pass `--hook-image=<operator image>` |
 | `FleetAvailable=False`, reason `OrchestratorUnavailable`, message `orchestrator deployment is not yet available` | The orchestrator pod is not Ready. Its readiness probe runs `/etc/claude/hooks/spawn-runner --probe-connected http://127.0.0.1:<healthPort>/healthz` and passes only when the body has `"connected": true`. Causes: the environment key is wrong or revoked; egress to `api.anthropic.com` is blocked (a NetworkPolicy without its CIDRs, a proxy that is not configured); the `install-hook` init container failed (image pull) | `kubectl -n <ns> logs deploy/<env>-orchestrator -c orchestrator` (look for authentication or connection errors); `kubectl -n <ns> logs deploy/<env>-orchestrator -c install-hook`; `kubectl -n <ns> port-forward deploy/<env>-orchestrator 8080` and `curl localhost:8080/healthz` to read `connected`. With `spec.runner.networkPolicy.enabled`, check that `<env>-egress` lists the right CIDRs and that `<env>-egress-apiserver` exists |
+| `Degraded=True`, `AccessListMissing: ConfigMap "<name>" not found` or `ConfigMap "<name>" has no key "<key>"`, in Enforce mode followed by `: every session is refused` | `spec.authorization` names a ConfigMap or key that does not exist. In Enforce mode nobody can start a session and running sessions are stopped | Create the ConfigMap with the key, one account ID per line (see [access lists](docs/authorization.md)) |
+| `Degraded=True`, `AccessListInvalid: ConfigMap "<name>" key "<key>": lines <n>, <m> are not account IDs (user_...) and are ignored` | Those lines of the access list are not account IDs: an email address, a typo, two IDs on one line. They are ignored; the other lines still apply. The text of the lines is never shown | Fix or remove the lines. Only `user_...` IDs are accepted; `#` starts a comment |
+| `AccessRestricted=False`, reason `AccessListAudited` | `spec.authorization.mode` is `Audit`: the list is reported against but nobody is refused | Set `mode: Enforce` once the `UnauthorizedAudit` events name nobody who should have access |
 | `SecretOnRunners=True`, reason `FixedModeSecretOnPods` | Expected in fixed mode: every runner pod mounts the environment key | Use on-demand mode to keep the key off runner pods (see [hardening](docs/hardening.md)) |
 | The environment has no status at all | The manager does not watch its namespace (`--watch-namespaces`), or the manager is not running | See [watch-namespaces](#--watch-namespaces-mistakes) |
 
@@ -37,12 +40,19 @@ pod's termination message is redacted and truncated.
 | `WorkOrderMismatch`, message `work-order Secret "<name>" does not belong to environment "<env>"` | No pod is created. The Secret named in `spec.workOrderSecretRef` lacks the `claude.cloudeng.ps/environment=<env>` label, or is controlled by another environment or ClaudeRunner (or by nothing). It also happens when an order is redelivered after its earlier runner was TTL-deleted but before that runner's Secret was garbage-collected | Nothing to do for a redelivery: the order is re-offered and the Secret disappears with its old owner. Otherwise find what created or relabelled the Secret; the operator's hook never does |
 | `PodMismatch`, message `pod <pod> is not controlled by this ClaudeRunner` | A pod with the runner's name already exists and is not controlled by this ClaudeRunner (for example left from a deleted runner of the same name, or created by hand). The operator never deletes it | Inspect and delete the pod yourself if it is stray; the runner stays failed and expires after its TTL |
 | `EnvironmentMissing`, message `ClaudeEnvironment "<env>" not found` | The environment was deleted | None; the runner expires after `runnerTTLSecondsAfterFinished` |
+| `Unauthorized`, message `account user_... is not on this self-hosted environment's access list; ...`, `this session has no user account ID, ...` or `this self-hosted environment's access list is unavailable, ...` | The environment's access list (`spec.authorization`) does not allow the runner's account, or the list is missing. No pod is created, and a pod that was running is deleted: this is how a session ends when its account is taken off the list | Add the account ID to the ConfigMap if the person should have access (`kubectl -n <ns> get crun -o wide` shows it). See [access lists](docs/authorization.md) |
 | `PodFailed`, message `exit code <n> (<reason>): <line>`, `pod failed: <reason>` or `pod phase Unknown: node unreachable` | The runner process exited non-zero (the line is the last `[runner:fatal]` or `error:` line, redacted), the pod failed, or its node became unreachable | `kubectl -n <ns> logs <pod> -c runner` while the pod still exists (until the TTL, default 300 s) |
 
 The hook writes one JSON line per run to the orchestrator's output with `orderID`, `sessionID`,
-`attempt`, `outcome` (`submitted`, `redelivered`, `at_capacity`, `error`), `exitCode` and `error`. Exit code
-`1` is retryable (at capacity, transient API errors); `2` is non-retryable (the API rejected the request) and
-counts towards the product's circuit breaker.
+`accountID`, `attempt`, `outcome` (`submitted`, `redelivered`, `at_capacity`, `denied`, `error`),
+`authorization`, `exitCode` and `error`. Exit code `1` is retryable (at capacity, transient API errors); `2`
+is non-retryable (the access list refused the creator, or the API rejected the request) and counts towards
+the product's circuit breaker. A session that fails at once with `account user_... is not on this
+self-hosted environment's access list` in the environment's Activity tab was refused by the hook: outcome
+`denied`, no ClaudeRunner. An `error` with exit code `1` that mentions `read the access list` means the hook
+could not read the access list and refused nobody for good: Anthropic sends the request again. With
+`forbidden` in it, the orchestrator Role has not caught up with a change of `spec.authorization` yet, which
+takes a moment; if it persists, check that the environment reconciles (`kubectl describe cenv`).
 
 ## Events
 
@@ -52,7 +62,8 @@ counts towards the product's circuit breaker.
 | Normal `Created`, `created <Kind> <name>` | The operator created a workload or orchestrator object |
 | Normal `FleetAvailable` | `FleetAvailable` turned `True` |
 | Warning `SecretMissing`, `SecretKeyMissing`, `WorkloadApplyFailed` | As the conditions above |
-| Warning `ConfigMapMissing`, `GracePeriodTooShort`, `RunnerFailedStart`, `HookImageUnset` | Emitted once when the degradation starts, not on every reconcile |
+| Warning `ConfigMapMissing`, `GracePeriodTooShort`, `RunnerFailedStart`, `HookImageUnset`, `AccessListMissing`, `AccessListInvalid` | Emitted once when the degradation starts, not on every reconcile |
+| On a ClaudeRunner: Warning `Unauthorized`; Warning `UnauthorizedAudit` | The access list refused or stopped the runner; in Audit mode, it would have. The message carries the account ID |
 | On a ClaudeRunner: Normal `PodCreated`, `RunnerSucceeded`; Warning with the failure reason | Runner lifecycle |
 
 ## Admission and validation errors
@@ -70,6 +81,8 @@ counts towards the product's circuit breaker.
 | `egressCIDRs must be IPv4 CIDRs` | One entry is not `a.b.c.d/n` with every octet 0 to 255 and `n` 0 to 32 |
 | `spec.onDemand.orchestrator.env: Too many: 65: must have at most 64 items` | `onDemand.orchestrator.env` is capped at 64 entries, like `runner.env`. Move bulk configuration into the image or a mounted file |
 | `hookTimeoutSeconds + 5 must be below expectedSpawnSeconds`; `spec.onDemand.orchestrator.hookTimeoutSeconds` below 15 | The first mirrors the orchestrator's own startup check (the timeout plus its 5-second kill grace must stay below the spawn lease); the hook needs at least 15 s, because its deadline is the timeout minus 10 s |
+| `authorization requires onDemand; restrict a fixed fleet with runner.settings.lockToAccount` | `spec.authorization` checks the spawn request, which a fixed fleet does not have. `lockToAccount` pre-locks a fixed fleet to one account |
+| `authorization cannot be combined with onDemand.orchestrator.minIdle: a standby runner serves whoever dispatches next` | Standby runners start before any session exists, so there is no creator to check. Set `minIdle: 0` on an environment with an access list |
 | `exactly one of spec.fixed or spec.onDemand must be set`, `onDemand requires runner.capacity == 1`, `useAnthropicGitProxy requires runner.capacity == 1`, `fixed.persistentWorkspace requires runner.settings.lockToAccount` | Spec shape rules |
 | `exactly one volume source must be set` | A `podTemplate.volumes` entry sets none or several sources |
 | `unknown field "spec.runner.podTemplate.hostNetwork"` (or `hostPID`, `privileged`, ...) | Fields that would break Restricted Pod Security are not part of the API |

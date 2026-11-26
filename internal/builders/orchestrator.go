@@ -78,21 +78,28 @@ func OrchestratorServiceAccount(env *selfhostedv1alpha1.ClaudeEnvironment) *core
 
 // OrchestratorRole grants exactly what the hook does: read the environment,
 // create ClaudeRunners (and list them only when a concurrency cap applies),
-// and create the work-order Secret then hand it to the ClaudeRunner.
+// create the work-order Secret then hand it to the ClaudeRunner, and read the
+// one ConfigMap that holds the access list when the environment has one.
 func OrchestratorRole(env *selfhostedv1alpha1.ClaudeEnvironment) *rbacv1.Role {
-	runnerVerbs := []string{"create", "get"}
+	const get = "get"
+	runnerVerbs := []string{"create", get}
 	if env.Spec.OnDemand != nil && env.Spec.OnDemand.MaxConcurrentRunners > 0 {
 		runnerVerbs = append(runnerVerbs, "list")
+	}
+	rules := []rbacv1.PolicyRule{
+		{APIGroups: []string{selfhostedv1alpha1.GroupVersion.Group}, Resources: []string{"claudeenvironments"}, Verbs: []string{get},
+			ResourceNames: []string{env.Name}},
+		{APIGroups: []string{selfhostedv1alpha1.GroupVersion.Group}, Resources: []string{"clauderunners"}, Verbs: runnerVerbs},
+		{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"create", "patch", "delete"}},
+	}
+	if a := env.Spec.Authorization; a != nil {
+		rules = append(rules, rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"configmaps"}, Verbs: []string{get},
+			ResourceNames: []string{a.AllowedAccountsFrom.ConfigMapKeyRef.Name}})
 	}
 	return &rbacv1.Role{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "rbac.authorization.k8s.io/v1", Kind: "Role"},
 		ObjectMeta: orchestratorMeta(env),
-		Rules: []rbacv1.PolicyRule{
-			{APIGroups: []string{selfhostedv1alpha1.GroupVersion.Group}, Resources: []string{"claudeenvironments"}, Verbs: []string{"get"},
-				ResourceNames: []string{env.Name}},
-			{APIGroups: []string{selfhostedv1alpha1.GroupVersion.Group}, Resources: []string{"clauderunners"}, Verbs: runnerVerbs},
-			{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"create", "patch", "delete"}},
-		},
+		Rules:      rules,
 	}
 }
 

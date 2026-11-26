@@ -31,13 +31,18 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/authz"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/builders"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/metrics"
+	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/redact"
 	"github.com/AhmadMasry/claude-self-hosted-environment-operator/internal/telemetry"
 )
 
@@ -51,8 +56,8 @@ const (
 type ClaudeRunnerReconciler struct {
 	client.Client
 	// Reader is an uncached reader for decisions a lagging informer must not
-	// make: whether the environment or the work-order Secret exists and
-	// whether the pod is gone.
+	// make: whether the environment or the work-order Secret exists, whether
+	// the pod is gone and whether the access list allows the account.
 	Reader   client.Reader
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
@@ -68,9 +73,10 @@ func (r *ClaudeRunnerReconciler) now() time.Time { return tick(r.Clock) }
 // +kubebuilder:rbac:groups=claude.cloudeng.ps,resources=claudeenvironments,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
-// Reconcile drives one ClaudeRunner: finalizer, pod, phase, spawn timeout, TTL.
+// Reconcile drives one ClaudeRunner: finalizer, access check, pod, phase, spawn timeout, TTL.
 func (r *ClaudeRunnerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	runner := &selfhostedv1alpha1.ClaudeRunner{}
 	if err := r.Get(ctx, req.NamespacedName, runner); err != nil {
@@ -114,8 +120,8 @@ func (r *ClaudeRunnerReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhostedv1alpha1.ClaudeRunner) (ctrl.Result, error) {
 	if runner.Status.Phase.IsTerminal() {
-		if runner.Status.Reason == selfhostedv1alpha1.ReasonSpawnTimeout {
-			// The pass that timed the runner out may have failed to delete the pod.
+		if runner.Status.Reason == selfhostedv1alpha1.ReasonSpawnTimeout || runner.Status.Reason == selfhostedv1alpha1.ReasonUnauthorized {
+			// The pass that stopped the runner may have failed to delete the pod.
 			if _, err := r.deleteOwnPod(ctx, runner); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -132,15 +138,20 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		return ctrl.Result{}, err
 	}
 	wasRunning := runner.Status.Phase == selfhostedv1alpha1.RunnerRunning
+	hadPod := runner.Status.PodName != ""
 	var pod *corev1.Pod
-	if runner.Status.PodName == "" {
+	if !hadPod {
 		if msg := ownerMismatch(runner, env); msg != "" {
 			r.fail(runner, selfhostedv1alpha1.ReasonEnvironmentMismatch, msg)
 			return ctrl.Result{}, nil
 		}
+		if res, stopped, aerr := r.checkAccess(ctx, env, runner); stopped || aerr != nil {
+			return res, aerr
+		}
 		if res, wait, werr := r.awaitWorkOrder(ctx, env, runner); wait || werr != nil {
 			return res, werr
 		}
+		r.auditAccess(ctx, env, runner)
 		if pod, err = r.createPod(ctx, env, runner); err != nil || pod == nil {
 			return ctrl.Result{}, err
 		}
@@ -155,6 +166,13 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		}
 	}
 	ph := derivePhase(pod, r.now())
+	if hadPod && !ph.Phase.IsTerminal() {
+		// A session that is still running ends when its account leaves the
+		// list. A pod that has already finished keeps its own outcome.
+		if res, stopped, aerr := r.checkAccess(ctx, env, runner); stopped || aerr != nil {
+			return res, aerr
+		}
+	}
 	runner.Status.PodName = runner.Name
 	if ph.StartedAt != nil {
 		runner.Status.StartedAt = ph.StartedAt
@@ -176,23 +194,7 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		}
 		msg := fmt.Sprintf("pod did not start within %d seconds (%s: %s)", spawnSeconds(env), ph.Reason, ph.Message)
 		logf.FromContext(ctx).Info("Runner spawn timed out", "pod", pod.Name)
-		// Store Failed before the pod goes and count it only once stored, so
-		// neither a lost update here nor one after the delete counts it twice:
-		// every later pass sees a terminal runner.
-		r.markFailed(runner, selfhostedv1alpha1.ReasonSpawnTimeout, msg)
-		if err := r.Status().Update(ctx, runner); err != nil {
-			if apierrors.IsConflict(err) {
-				return ctrl.Result{RequeueAfter: time.Second}, nil
-			}
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-		metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeFailed)
-		metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeSpawnTimeout)
-		r.Recorder.Event(runner, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonSpawnTimeout, msg)
-		if _, err := r.deleteOwnPod(ctx, runner); err != nil {
-			return ctrl.Result{}, err
-		}
-		return r.expire(ctx, runner)
+		return r.stop(ctx, runner, selfhostedv1alpha1.ReasonSpawnTimeout, msg, metrics.OutcomeSpawnTimeout)
 	case selfhostedv1alpha1.RunnerRunning:
 		if !wasRunning {
 			metrics.ObserveSpawn(runner.Namespace, runner.Spec.EnvironmentRef.Name, spawnDuration(runner, pod, r.now()))
@@ -205,6 +207,88 @@ func (r *ClaudeRunnerReconciler) reconcile(ctx context.Context, runner *selfhost
 		r.setReady(runner, metav1.ConditionFalse, ph.Reason, ph.Message)
 		r.Recorder.Event(runner, corev1.EventTypeNormal, selfhostedv1alpha1.ReasonRunnerSucceeded, "runner finished: "+ph.Reason)
 		return r.expire(ctx, runner)
+	}
+}
+
+// stop fails the runner with reason and deletes its pod, counting outcome next
+// to the failure. Failed is stored before the pod goes and counted only once
+// stored, so neither a lost update here nor one after the delete counts it
+// twice: every later pass sees a terminal runner.
+func (r *ClaudeRunnerReconciler) stop(ctx context.Context, runner *selfhostedv1alpha1.ClaudeRunner, reason, msg, outcome string) (ctrl.Result, error) {
+	r.markFailed(runner, reason, msg)
+	if err := r.Status().Update(ctx, runner); err != nil {
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{RequeueAfter: time.Second}, nil
+		}
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, metrics.OutcomeFailed)
+	metrics.CountRunner(runner.Namespace, runner.Spec.EnvironmentRef.Name, outcome)
+	r.Recorder.Event(runner, corev1.EventTypeWarning, reason, msg)
+	if _, err := r.deleteOwnPod(ctx, runner); err != nil {
+		return ctrl.Result{}, err
+	}
+	return r.expire(ctx, runner)
+}
+
+// checkAccess enforces the environment's access list on the runner's account.
+// It runs before the pod is created and on every later pass of a runner whose
+// pod is still alive, so an account taken off the list loses its running
+// session. A refused runner is failed and its pod deleted; stopped is then
+// true and the caller returns res. Audit mode refuses nobody (see auditAccess).
+//
+// Nothing here comes from the cache. The list is read from the API server, and
+// before a runner is refused the environment is read from it too, because the
+// cached copy can lag behind a change of spec.authorization: a runner must not
+// be stopped over a list the environment no longer names. A list or an
+// environment that cannot be read is an error and a retry, never a verdict.
+func (r *ClaudeRunnerReconciler) checkAccess(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment,
+	runner *selfhostedv1alpha1.ClaudeRunner) (res ctrl.Result, stopped bool, err error) {
+	if !authz.Enforced(env) {
+		return ctrl.Result{}, false, nil
+	}
+	d, err := authz.Check(ctx, r.Reader, env, runner.Spec.AccountID)
+	if err != nil {
+		return ctrl.Result{}, true, fmt.Errorf("read the access list: %w", err)
+	}
+	if d.Allowed {
+		return ctrl.Result{}, false, nil
+	}
+	fresh := &selfhostedv1alpha1.ClaudeEnvironment{}
+	if err := r.Reader.Get(ctx, client.ObjectKeyFromObject(env), fresh); err != nil {
+		return ctrl.Result{}, true, fmt.Errorf("confirm the environment before refusing: %w", err)
+	}
+	if !authz.Enforced(fresh) {
+		return ctrl.Result{}, false, nil
+	}
+	if d, err = authz.Check(ctx, r.Reader, fresh, runner.Spec.AccountID); err != nil {
+		return ctrl.Result{}, true, fmt.Errorf("read the access list: %w", err)
+	}
+	if d.Allowed {
+		return ctrl.Result{}, false, nil
+	}
+	logf.FromContext(ctx).Info("Access list refuses the runner",
+		"accountID", redact.String(runner.Spec.AccountID), "podExists", runner.Status.PodName != "")
+	res, err = r.stop(ctx, runner, selfhostedv1alpha1.ReasonUnauthorized, d.Message, metrics.OutcomeUnauthorized)
+	return res, true, err
+}
+
+// auditAccess reports, in Audit mode, a runner the access list would refuse.
+// It never holds a runner back: a list that cannot be read is logged and the
+// runner starts. It runs once the work order is there, just before the pod is
+// created, so a runner is reported once unless that pass is repeated.
+func (r *ClaudeRunnerReconciler) auditAccess(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, runner *selfhostedv1alpha1.ClaudeRunner) {
+	if env.Spec.Authorization == nil || authz.Enforced(env) {
+		return
+	}
+	log := logf.FromContext(ctx).WithValues("accountID", redact.String(runner.Spec.AccountID))
+	d, err := authz.Check(ctx, r.Reader, env, runner.Spec.AccountID)
+	switch {
+	case err != nil:
+		log.Error(err, "Failed to read the access list, audit mode starts the runner")
+	case !d.Allowed:
+		log.Info("Access list would refuse the runner, audit mode starts it")
+		r.Recorder.Event(runner, corev1.EventTypeWarning, selfhostedv1alpha1.ReasonUnauthorizedAudit, d.Message)
 	}
 }
 
@@ -488,11 +572,53 @@ func spawnSeconds(env *selfhostedv1alpha1.ClaudeEnvironment) int32 {
 	return 120
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// runnersUnderAccessList maps a ConfigMap to the live runners of every
+// environment that uses it as its access list, so an edit to the list reaches
+// running sessions at once.
+func (r *ClaudeRunnerReconciler) runnersUnderAccessList(ctx context.Context, cm client.Object) []reconcile.Request {
+	envs := &selfhostedv1alpha1.ClaudeEnvironmentList{}
+	if err := r.List(ctx, envs, client.InNamespace(cm.GetNamespace())); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to list environments for an access list change", "configMap", cm.GetName())
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range envs.Items {
+		a := envs.Items[i].Spec.Authorization
+		if a != nil && a.AllowedAccountsFrom.ConfigMapKeyRef.Name == cm.GetName() {
+			reqs = append(reqs, r.liveRunners(ctx, &envs.Items[i])...)
+		}
+	}
+	return reqs
+}
+
+// liveRunners lists the runners that name env and have not finished. It goes
+// by spec.environmentRef, which the controller acts on, and not by the
+// environment label, which nothing enforces.
+func (r *ClaudeRunnerReconciler) liveRunners(ctx context.Context, env client.Object) []reconcile.Request {
+	runners := &selfhostedv1alpha1.ClaudeRunnerList{}
+	if err := r.List(ctx, runners, client.InNamespace(env.GetNamespace())); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to list runners for an access list change", "environment", env.GetName())
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range runners.Items {
+		if runners.Items[i].Spec.EnvironmentRef.Name == env.GetName() && !runners.Items[i].Status.Phase.IsTerminal() {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&runners.Items[i])})
+		}
+	}
+	return reqs
+}
+
+// SetupWithManager sets up the controller with the Manager. Besides its own
+// pods, a runner is reconciled when the access list of its environment
+// changes: the ConfigMap that holds it, or spec.authorization itself.
 func (r *ClaudeRunnerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&selfhostedv1alpha1.ClaudeRunner{}).
 		Owns(&corev1.Pod{}).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.runnersUnderAccessList)).
+		Watches(&selfhostedv1alpha1.ClaudeEnvironment{}, handler.EnqueueRequestsFromMapFunc(r.liveRunners),
+			builder.WithPredicates(authorizationChanged())).
 		Named("clauderunner").
 		Complete(r)
 }

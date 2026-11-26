@@ -105,6 +105,22 @@ func (r *endpointsReader) Get(ctx context.Context, key client.ObjectKey, obj cli
 
 var envReader *endpointsReader
 
+// accessListReader wraps the runner reconciler's uncached reader, which reads
+// ConfigMaps only for access lists, so a spec can make those reads fail.
+type accessListReader struct {
+	client.Reader
+	fail atomic.Bool
+}
+
+func (r *accessListReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(*corev1.ConfigMap); ok && r.fail.Load() {
+		return apierrors.NewServiceUnavailable("injected access list read failure")
+	}
+	return r.Reader.Get(ctx, key, obj, opts...)
+}
+
+var runnerReader *accessListReader
+
 // faultClient wraps a reconciler's client so a spec can run a hook before
 // each status update the reconciler sends, for example to race it with a
 // write of its own, or make NetworkPolicy deletes fail.
@@ -211,8 +227,9 @@ var _ = BeforeSuite(func() {
 		Recorder: k8sManager.GetEventRecorderFor("claude-selfhosted-operator-test"),
 	}
 	Expect(envReconciler.SetupWithManager(k8sManager)).To(Succeed())
+	runnerReader = &accessListReader{Reader: k8sManager.GetAPIReader()}
 	runnerReconciler = &ClaudeRunnerReconciler{
-		Client: runnerClient, Reader: k8sManager.GetAPIReader(), Scheme: k8sManager.GetScheme(), Clock: clock.Now,
+		Client: runnerClient, Reader: runnerReader, Scheme: k8sManager.GetScheme(), Clock: clock.Now,
 		//nolint:staticcheck // the events.k8s.io replacement changes the API; migrate separately
 		Recorder: k8sManager.GetEventRecorderFor("claude-selfhosted-operator-test"),
 	}

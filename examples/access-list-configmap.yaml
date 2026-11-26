@@ -1,0 +1,13 @@
+# The access list for spec.authorization (docs/authorization.md): the Anthropic
+# accounts whose sessions the environment runs. One account ID per line; text
+# after a # is a comment. Email addresses are not accepted. Removing a line
+# stops that account's running sessions.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-access
+  namespace: claude-runners
+data:
+  accounts: |
+    user_01EXAMPLE0000000000000001   # platform lead
+    user_01EXAMPLE0000000000000002   # on-call engineer

@@ -44,7 +44,7 @@ func testdataPath(name string) string {
 
 var _ = Describe("testdata", func() {
 	It("uses the suite's stub image literal", func() {
-		for _, f := range []string{"fixed-fleet-stub.yaml", "on-demand-stub.yaml"} {
+		for _, f := range []string{"fixed-fleet-stub.yaml", "on-demand-stub.yaml", "access-list-stub.yaml"} {
 			b, err := os.ReadFile(testdataPath(f))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(b)).To(ContainSubstring("image: "+stubImage), f)

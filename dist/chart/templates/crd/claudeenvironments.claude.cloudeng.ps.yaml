@@ -57,6 +57,49 @@ spec:
           spec:
             description: ClaudeEnvironmentSpec defines the desired state of ClaudeEnvironment.
             properties:
+              authorization:
+                description: |-
+                  Authorization restricts who may run sessions on this environment. Unset
+                  means every member of the Anthropic organization may. On-demand only.
+                properties:
+                  allowedAccountsFrom:
+                    description: |-
+                      AllowedAccountsFrom names the list of account IDs allowed to use the
+                      environment.
+                    properties:
+                      configMapKeyRef:
+                        description: |-
+                          ConfigMapKeyRef names a ConfigMap key in the environment's namespace that
+                          holds one Anthropic account ID (user_...) per line. Blank lines and text
+                          after a # are ignored. Email addresses are not accepted. A missing
+                          ConfigMap or key allows nobody.
+                        properties:
+                          key:
+                            minLength: 1
+                            type: string
+                          name:
+                            minLength: 1
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    required:
+                    - configMapKeyRef
+                    type: object
+                  mode:
+                    default: Enforce
+                    description: |-
+                      Mode is Enforce or Audit. Enforce refuses a session whose creator is not
+                      on the list and stops a running session once its creator is removed from
+                      it. Audit refuses nobody and reports the sessions Enforce would refuse.
+                    enum:
+                    - Enforce
+                    - Audit
+                    type: string
+                required:
+                - allowedAccountsFrom
+                type: object
               environmentSecretRef:
                 description: SecretKeyRef names a Secret and key in the same namespace.
                 properties:
@@ -6956,6 +6999,13 @@ spec:
             - message: fixed.persistentWorkspace requires runner.settings.lockToAccount
               rule: '!has(self.fixed) || !has(self.fixed.persistentWorkspace) || (has(self.runner.settings.lockToAccount)
                 && size(self.runner.settings.lockToAccount) > 0)'
+            - message: authorization requires onDemand; restrict a fixed fleet with
+                runner.settings.lockToAccount
+              rule: '!has(self.authorization) || has(self.onDemand)'
+            - message: 'authorization cannot be combined with onDemand.orchestrator.minIdle:
+                a standby runner serves whoever dispatches next'
+              rule: '!has(self.authorization) || !has(self.onDemand) || !has(self.onDemand.orchestrator.minIdle)
+                || self.onDemand.orchestrator.minIdle == 0'
           status:
             description: ClaudeEnvironmentStatus defines the observed state of ClaudeEnvironment.
             properties:

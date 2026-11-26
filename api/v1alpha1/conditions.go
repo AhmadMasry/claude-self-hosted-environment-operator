@@ -23,6 +23,9 @@ const (
 	ConditionProgressing     = "Progressing"
 	ConditionDegraded        = "Degraded"
 	ConditionSecretOnRunners = "SecretOnRunners"
+	// ConditionAccessRestricted is present only while spec.authorization is
+	// set: True in Enforce mode, False in Audit mode.
+	ConditionAccessRestricted = "AccessRestricted"
 
 	ReasonSecretMissing         = "SecretMissing"
 	ReasonSecretKeyMissing      = "SecretKeyMissing"
@@ -36,6 +39,10 @@ const (
 	ReasonReconciling           = "Reconciling"
 	ReasonAsExpected            = "AsExpected"
 	ReasonFixedModeSecretOnPods = "FixedModeSecretOnPods"
+	ReasonAccessListEnforced    = "AccessListEnforced"
+	ReasonAccessListAudited     = "AccessListAudited"
+	ReasonAccessListMissing     = "AccessListMissing"
+	ReasonAccessListInvalid     = "AccessListInvalid"
 
 	LabelEnvironment     = "claude.cloudeng.ps/environment"
 	LabelRole            = "claude.cloudeng.ps/role"
@@ -67,6 +74,11 @@ const (
 	ReasonFleetAvailable               = "FleetAvailable"
 	ReasonCreated                      = "Created"
 	ReasonOrphanedWorkOrderDeleted     = "OrphanedWorkOrderDeleted"
+	// ReasonUnauthorized fails a runner whose account the access list refuses.
+	ReasonUnauthorized = "Unauthorized"
+	// ReasonUnauthorizedAudit is the event on a runner the access list would
+	// refuse, started because the mode is Audit.
+	ReasonUnauthorizedAudit = "UnauthorizedAudit"
 
 	LabelOrderID          = "claude.cloudeng.ps/order-id"
 	LabelSessionID        = "claude.cloudeng.ps/session-id"

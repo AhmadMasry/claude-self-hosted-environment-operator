@@ -5,7 +5,28 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Access lists for on-demand environments (`spec.authorization`). Anthropic lets every member of an
+  organization dispatch to every environment; the operator can now refuse to run sessions for accounts that
+  are not listed. `allowedAccountsFrom.configMapKeyRef` names a ConfigMap key with one Anthropic account ID
+  (`user_...`) per line. The spawn-runner hook refuses an unlisted creator before anything is created, the
+  ClaudeRunner controller checks again before it creates the pod, and a running session is stopped when its
+  account is removed from the list or the list is deleted. `mode: Audit` reports without refusing. A missing
+  list refuses everyone; a list that cannot be read is retried and never treated as an answer; a line that
+  is not an account ID is ignored and reported by line number. Rejected on fixed fleets and together with
+  `onDemand.orchestrator.minIdle`. See
+  [docs/authorization.md](docs/authorization.md).
+- ClaudeEnvironment condition `AccessRestricted`, degradation reasons `AccessListMissing` and
+  `AccessListInvalid`, ClaudeRunner reason `Unauthorized`, events `Unauthorized` and `UnauthorizedAudit`,
+  and outcome `unauthorized` on `claude_operator_runners_total`.
+- `kubectl get crun -o wide` shows the account ID and the reason.
+
+### Changed
+
+- The hook's log line carries `accountID` and, with an access list, `authorization`; a refusal has outcome
+  `denied`.
+- The orchestrator Role gains `get` on the access-list ConfigMap, by name, when `spec.authorization` is set.
 
 ## [0.3.1] - 2026-11-14
 

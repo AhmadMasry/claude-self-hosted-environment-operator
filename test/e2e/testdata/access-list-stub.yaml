@@ -1,0 +1,78 @@
+# Two on-demand environments in one namespace. The stub orchestrator runs the
+# hook for account user_e2e: "open" lists it, "closed" does not.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: open-access
+  namespace: claude-e2e-acl
+data:
+  accounts: |
+    # accounts allowed to use the "open" environment
+    user_e2e    # the stub orchestrator's account
+    user_other
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: closed-access
+  namespace: claude-e2e-acl
+data:
+  accounts: |
+    user_other
+---
+apiVersion: claude.cloudeng.ps/v1alpha1
+kind: ClaudeEnvironment
+metadata:
+  name: open
+  namespace: claude-e2e-acl
+spec:
+  environmentSecretRef:
+    name: claude-env-secret
+  authorization:
+    allowedAccountsFrom:
+      configMapKeyRef: {name: open-access, key: accounts}
+  runner:
+    image: example.com/claude-stub-runner:e2e
+    capacity: 1
+    env:
+      - name: STUB_EXIT_AFTER_SECONDS
+        value: "600"         # the spec stops the session itself, by editing the list
+    podTemplate:
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+  onDemand:
+    orchestrator:
+      replicas: 1
+      expectedSpawnSeconds: 90
+      hookTimeoutSeconds: 60
+      podTemplate:
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
+    runnerTTLSecondsAfterFinished: 15
+---
+apiVersion: claude.cloudeng.ps/v1alpha1
+kind: ClaudeEnvironment
+metadata:
+  name: closed
+  namespace: claude-e2e-acl
+spec:
+  environmentSecretRef:
+    name: claude-env-secret
+  authorization:
+    mode: Enforce
+    allowedAccountsFrom:
+      configMapKeyRef: {name: closed-access, key: accounts}
+  runner:
+    image: example.com/claude-stub-runner:e2e
+    capacity: 1
+    podTemplate:
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+  onDemand:
+    orchestrator:
+      replicas: 1
+      expectedSpawnSeconds: 90
+      hookTimeoutSeconds: 60
+      podTemplate:
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
