@@ -5,7 +5,10 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- Dependencies: `k8s.io/*` 0.37.3 and controller-runtime 0.25.3; workflow actions setup-go 7.1.0,
+  sbom-action 0.24.4 and cosign-installer 4.1.4; the reply-sink test image digests refreshed.
 
 ## [0.3.1] - 2026-11-14
 
