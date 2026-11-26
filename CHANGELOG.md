@@ -5,6 +5,10 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.0] - 2026-11-27
+
 ### Added
 
 - Access lists for on-demand environments (`spec.authorization`). Anthropic lets every member of an
@@ -27,6 +31,8 @@ All notable changes to this project are recorded here. The format follows
 - The hook's log line carries `accountID` and, with an access list, `authorization`; a refusal has outcome
   `denied`.
 - The orchestrator Role gains `get` on the access-list ConfigMap, by name, when `spec.authorization` is set.
+- Dependencies: `k8s.io/*` 0.37.3 and controller-runtime 0.25.3; workflow actions setup-go 7.1.0,
+  sbom-action 0.24.4 and cosign-installer 4.1.4; the reply-sink test image digests refreshed.
 
 ## [0.3.1] - 2026-11-14
 
@@ -201,7 +207,8 @@ section for what that promises.
 
 - The manager's `--zap-*` flags; use `--log-level` and `--log-format`.
 
-[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.1.2...v0.2.0
