@@ -168,7 +168,17 @@ var _ = Describe("Access list", func() {
 		Consistently(runnerPhase(ctx, key), "2s", interval).Should(Equal(selfhostedv1alpha1.RunnerRunning))
 		Expect(k8sClient.Get(ctx, key, &corev1.Pod{})).To(Succeed())
 
+		// The failed passes are retried with a growing delay; a change to the
+		// runner brings the next pass forward so the spec does not wait on it.
 		runnerReader.fail.Store(false)
+		Expect(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			cur := &selfhostedv1alpha1.ClaudeRunner{}
+			if err := k8sClient.Get(ctx, key, cur); err != nil {
+				return err
+			}
+			cur.Annotations = map[string]string{"test/poke": "1"}
+			return k8sClient.Update(ctx, cur)
+		})).To(Succeed())
 		Expect(expectStopped(ctx, key)).To(ContainSubstring("account " + alice + " is not on"))
 	})
 
@@ -179,15 +189,17 @@ var _ = Describe("Access list", func() {
 		Expect(k8sClient.Create(ctx, env)).To(Succeed())
 		key := runUntilRunning(ctx, env, "order-done", alice)
 
-		// The read failure keeps the controller from acting on the edit until
-		// the pod has finished; the pass that follows sees both at once.
+		// While the list cannot be read, the edit cannot be applied: only the
+		// pod's own outcome can end the runner. Reads come back once that
+		// outcome is recorded, so the order of the two does not depend on timing.
 		runnerReader.fail.Store(true)
 		DeferCleanup(func() { runnerReader.fail.Store(false) })
 		setAccessList(ctx, ns, bob)
 		setPodPhase(ctx, key, corev1.PodSucceeded, &corev1.ContainerStateTerminated{ExitCode: 0, FinishedAt: metav1.Now()})
-		runnerReader.fail.Store(false)
-
 		Eventually(runnerPhase(ctx, key), timeout, interval).Should(Equal(selfhostedv1alpha1.RunnerSucceeded))
+
+		runnerReader.fail.Store(false)
+		Consistently(runnerPhase(ctx, key), "2s", interval).Should(Equal(selfhostedv1alpha1.RunnerSucceeded))
 		Expect(metricstest.RunnersTotal(ns, envName, metrics.OutcomeUnauthorized)).To(Equal(0.0))
 	})
 
