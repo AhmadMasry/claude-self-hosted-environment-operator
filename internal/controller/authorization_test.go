@@ -176,7 +176,7 @@ var _ = Describe("Access list", func() {
 			if err := k8sClient.Get(ctx, key, cur); err != nil {
 				return err
 			}
-			cur.Annotations = map[string]string{"test/poke": "1"}
+			cur.Annotations = map[string]string{"test/reads-are-back": "1"}
 			return k8sClient.Update(ctx, cur)
 		})).To(Succeed())
 		Expect(expectStopped(ctx, key)).To(ContainSubstring("account " + alice + " is not on"))
