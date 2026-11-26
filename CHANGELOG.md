@@ -33,6 +33,11 @@ Nothing yet.
 - The orchestrator Role gains `get` on the access-list ConfigMap, by name, when `spec.authorization` is set.
 - Dependencies: `k8s.io/*` 0.37.3 and controller-runtime 0.25.3; workflow actions setup-go 7.1.0,
   sbom-action 0.24.4 and cosign-installer 4.1.4; the reply-sink test image digests refreshed.
+- Indirect Go modules raised to their latest releases, among them `golang.org/x/*` (net 0.63.0),
+  grpc 1.85.0, the OpenTelemetry contrib and proto modules, Prometheus common and procfs, and the go-openapi
+  modules. The modules Kubernetes develops together with `k8s.io/*` (`k8s.io/kube-openapi`,
+  `sigs.k8s.io/json`, the konnectivity client and cel-go) stay at the versions Kubernetes 0.37.3 uses: the
+  newest kube-openapi does not build against it.
 
 ## [0.3.1] - 2026-11-14
 
