@@ -25,22 +25,25 @@ import (
 )
 
 type logLine struct {
-	Time       string `json:"ts"`
-	OrderID    string `json:"orderID"`
-	SessionID  string `json:"sessionID,omitempty"`
-	Attempt    int32  `json:"attempt"`
-	Outcome    string `json:"outcome"`
-	ExitCode   int    `json:"exitCode"`
-	RunnerName string `json:"runner,omitempty"`
-	Warning    string `json:"warning,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Time          string `json:"ts"`
+	OrderID       string `json:"orderID"`
+	SessionID     string `json:"sessionID,omitempty"`
+	AccountID     string `json:"accountID,omitempty"`
+	Attempt       int32  `json:"attempt"`
+	Outcome       string `json:"outcome"`
+	Authorization string `json:"authorization,omitempty"`
+	ExitCode      int    `json:"exitCode"`
+	RunnerName    string `json:"runner,omitempty"`
+	Warning       string `json:"warning,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
-// WriteLog emits the hook's single structured log line.
+// WriteLog emits the hook's single structured log line. It is the record of
+// every access decision: the account ID, never the email, with the verdict.
 func WriteLog(w io.Writer, in Input, res Result) {
 	l := logLine{Time: time.Now().UTC().Format(time.RFC3339), OrderID: in.OrderID, SessionID: in.SessionID,
-		Attempt: in.Attempt, Outcome: res.Outcome, ExitCode: res.ExitCode, RunnerName: res.RunnerName,
-		Warning: Redact(res.Warning)}
+		AccountID: Redact(in.AccountID), Attempt: in.Attempt, Outcome: res.Outcome, Authorization: res.Authorization,
+		ExitCode: res.ExitCode, RunnerName: res.RunnerName, Warning: Redact(res.Warning)}
 	if res.Err != nil {
 		l.Error = Redact(res.Err.Error())
 	}

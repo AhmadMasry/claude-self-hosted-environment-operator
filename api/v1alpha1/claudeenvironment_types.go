@@ -273,11 +273,50 @@ type OnDemandSpec struct {
 	RunnerNamePrefix string `json:"runnerNamePrefix,omitempty"`
 }
 
+// AuthorizationMode says what happens to a session whose creator is not on the
+// environment's access list.
+// +kubebuilder:validation:Enum=Enforce;Audit
+type AuthorizationMode string
+
+const (
+	// AuthorizationEnforce refuses the session, and stops it when it is running.
+	AuthorizationEnforce AuthorizationMode = "Enforce"
+	// AuthorizationAudit lets the session run and reports it.
+	AuthorizationAudit AuthorizationMode = "Audit"
+)
+
+// AccountListSource says where the allowed account IDs are kept.
+type AccountListSource struct {
+	// ConfigMapKeyRef names a ConfigMap key in the environment's namespace that
+	// holds one Anthropic account ID (user_...) per line. Blank lines and text
+	// after a # are ignored. Email addresses are not accepted. A missing
+	// ConfigMap or key allows nobody.
+	ConfigMapKeyRef ConfigMapKeyRef `json:"configMapKeyRef"`
+}
+
+// AuthorizationSpec restricts which session creators an on-demand environment
+// serves. Anthropic lets every member of the organization dispatch to every
+// environment; this is the operator's own check of the account ID Anthropic
+// sends with each spawn request.
+type AuthorizationSpec struct {
+	// Mode is Enforce or Audit. Enforce refuses a session whose creator is not
+	// on the list and stops a running session once its creator is removed from
+	// it. Audit refuses nobody and reports the sessions Enforce would refuse.
+	// +kubebuilder:default=Enforce
+	// +optional
+	Mode AuthorizationMode `json:"mode,omitempty"`
+	// AllowedAccountsFrom names the list of account IDs allowed to use the
+	// environment.
+	AllowedAccountsFrom AccountListSource `json:"allowedAccountsFrom"`
+}
+
 // ClaudeEnvironmentSpec defines the desired state of ClaudeEnvironment.
 // +kubebuilder:validation:XValidation:rule="has(self.fixed) != has(self.onDemand)",message="exactly one of spec.fixed or spec.onDemand must be set"
 // +kubebuilder:validation:XValidation:rule="!has(self.onDemand) || self.runner.capacity == 1",message="onDemand requires runner.capacity == 1"
 // +kubebuilder:validation:XValidation:rule="!has(self.runner.settings.useAnthropicGitProxy) || !self.runner.settings.useAnthropicGitProxy || self.runner.capacity == 1",message="useAnthropicGitProxy requires runner.capacity == 1"
 // +kubebuilder:validation:XValidation:rule="!has(self.fixed) || !has(self.fixed.persistentWorkspace) || (has(self.runner.settings.lockToAccount) && size(self.runner.settings.lockToAccount) > 0)",message="fixed.persistentWorkspace requires runner.settings.lockToAccount"
+// +kubebuilder:validation:XValidation:rule="!has(self.authorization) || has(self.onDemand)",message="authorization requires onDemand; restrict a fixed fleet with runner.settings.lockToAccount"
+// +kubebuilder:validation:XValidation:rule="!has(self.authorization) || !has(self.onDemand) || !has(self.onDemand.orchestrator.minIdle) || self.onDemand.orchestrator.minIdle == 0",message="authorization cannot be combined with onDemand.orchestrator.minIdle: a standby runner serves whoever dispatches next"
 type ClaudeEnvironmentSpec struct {
 	EnvironmentSecretRef SecretKeyRef `json:"environmentSecretRef"`
 	Runner               RunnerSpec   `json:"runner"`
@@ -285,6 +324,10 @@ type ClaudeEnvironmentSpec struct {
 	Fixed *FixedFleetSpec `json:"fixed,omitempty"`
 	// +optional
 	OnDemand *OnDemandSpec `json:"onDemand,omitempty"`
+	// Authorization restricts who may run sessions on this environment. Unset
+	// means every member of the Anthropic organization may. On-demand only.
+	// +optional
+	Authorization *AuthorizationSpec `json:"authorization,omitempty"`
 }
 
 type FixedFleetStatus struct {

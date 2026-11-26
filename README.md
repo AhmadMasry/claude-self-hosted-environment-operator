@@ -32,6 +32,7 @@ the [quickstart](#quickstart).
 
 Docs: [quickstart](#quickstart) below, [on-demand mode](docs/on-demand.md),
 [customization](docs/customization.md) (entrypoint, init containers, wrapper script, lifecycle hooks),
+[access lists](docs/authorization.md) (who may use an environment),
 [hardening](docs/hardening.md), [metrics](docs/metrics.md),
 [upgrade](docs/upgrade.md), [troubleshooting](TROUBLESHOOTING.md),
 [testing](docs/testing.md), [releasing](docs/release.md),
@@ -175,6 +176,7 @@ The list shows Mode, Ready, Replicas and Age. Conditions on `.status.conditions`
 | `Progressing` | A rollout or scale change is under way |
 | `Degraded` | Something needs attention, for example `ConfigMapMissing`, `GracePeriodTooShort`, `RunnerFailedStart`, `HookImageUnset` |
 | `SecretOnRunners` | The Secret is mounted on runner pods; `False/OnDemandSecretOnOrchestrator` in on-demand mode |
+| `AccessRestricted` | Present with `spec.authorization`: `True/AccessListEnforced` when only listed accounts run, `False/AccessListAudited` in Audit mode |
 
 ## Configuration notes
 
@@ -183,6 +185,10 @@ The list shows Mode, Ready, Replicas and Age. Conditions on `.status.conditions`
   `169.254.169.254` always excluded, plus the standard egress rules in `additionalEgress` (at most 16) for
   in-cluster services or other ports. On-demand environments also get `<env>-egress-apiserver` so the
   orchestrator reaches the API server. Off by default; see [hardening](docs/hardening.md#networkpolicy).
+- **Access.** Anthropic lets every member of the organization use every environment. On an on-demand
+  environment, `spec.authorization` names a ConfigMap of allowed account IDs: a session from any other
+  account gets no pod, and a running session is stopped when its account is removed from the list.
+  `mode: Audit` reports without refusing. Off by default; see [access lists](docs/authorization.md).
 - **Validation.** `runner.image` needs a tag or digest and may not be `:latest`. `baseDir` and
   `podTemplate.volumeMounts` may not use `/etc/claude`, `/home/runner` or `/tmp`. `runner.env` may not set
   `SELF_HOSTED_RUNNER_HOST_CONFIG_DIR`, `SELF_HOSTED_RUNNER_CLIENT_LABEL` or

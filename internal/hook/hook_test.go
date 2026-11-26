@@ -347,3 +347,164 @@ func TestRunLabelsSecretAndRunnerIndependently(t *testing.T) {
 		t.Fatalf("secret labels %v, want %v", secret.Labels, want)
 	}
 }
+
+const (
+	accessListName   = "platform-access"
+	listedAccount    = "user_1" // the account input() carries
+	outcomeSubmitted = "submitted"
+	outcomeDenied    = "denied"
+)
+
+func envWithAccessList(mode selfhostedv1alpha1.AuthorizationMode) *selfhostedv1alpha1.ClaudeEnvironment {
+	env := envObj()
+	env.Spec.Authorization = &selfhostedv1alpha1.AuthorizationSpec{Mode: mode, AllowedAccountsFrom: selfhostedv1alpha1.AccountListSource{
+		ConfigMapKeyRef: selfhostedv1alpha1.ConfigMapKeyRef{Name: accessListName, Key: "accounts"}}}
+	return env
+}
+
+func accessList(accounts string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: accessListName, Namespace: testNS}, Data: map[string]string{"accounts": accounts}}
+}
+
+// spawned counts the ClaudeRunners and Secrets in the test namespace.
+func spawned(t *testing.T, c client.Client) int {
+	t.Helper()
+	runners, secrets := &selfhostedv1alpha1.ClaudeRunnerList{}, &corev1.SecretList{}
+	if err := c.List(context.Background(), runners, client.InNamespace(testNS)); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.List(context.Background(), secrets, client.InNamespace(testNS)); err != nil {
+		t.Fatal(err)
+	}
+	return len(runners.Items) + len(secrets.Items)
+}
+
+func TestRunAccessList(t *testing.T) {
+	const enforce, audit = selfhostedv1alpha1.AuthorizationEnforce, selfhostedv1alpha1.AuthorizationAudit
+	cases := []struct {
+		name          string
+		mode          selfhostedv1alpha1.AuthorizationMode
+		list          *corev1.ConfigMap
+		account       string
+		exit          int
+		outcome       string
+		authorization string
+		message       string
+	}{
+		{"listed account", enforce, accessList("user_1 # lead\nuser_2\n"), listedAccount, ExitSubmitted, outcomeSubmitted, AuthorizationAllowed, ""},
+		{"account not listed", enforce, accessList("user_2\n"), listedAccount, ExitNonRetryable, outcomeDenied, AuthorizationDenied, "account user_1 is not on"},
+		{"an unset mode enforces", "", accessList("user_2\n"), listedAccount, ExitNonRetryable, outcomeDenied, AuthorizationDenied, "account user_1 is not on"},
+		{"no account ID", enforce, accessList("user_1\n"), "", ExitNonRetryable, outcomeDenied, AuthorizationDenied, "no user account ID"},
+		{"empty list", enforce, accessList(""), listedAccount, ExitNonRetryable, outcomeDenied, AuthorizationDenied, "is not on"},
+		{"missing list", enforce, nil, listedAccount, ExitNonRetryable, outcomeDenied, AuthorizationDenied, "access list is unavailable"},
+		{"audit lets an unlisted account through", audit, accessList("user_2\n"), listedAccount, ExitSubmitted, outcomeSubmitted, AuthorizationAuditDenied, ""},
+		{"audit lets everyone through without a list", audit, nil, listedAccount, ExitSubmitted, outcomeSubmitted, AuthorizationAuditDenied, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			objs := []client.Object{envWithAccessList(tc.mode)}
+			if tc.list != nil {
+				objs = append(objs, tc.list)
+			}
+			c := newClient(objs...)
+			in := input()
+			in.AccountID = tc.account
+			res := Run(context.Background(), c, in, []byte("eyJ.fake.jwt"), "")
+			if res.ExitCode != tc.exit || res.Outcome != tc.outcome || res.Authorization != tc.authorization {
+				t.Fatalf("got %+v", res)
+			}
+			if tc.exit == ExitSubmitted {
+				if n := spawned(t, c); n != 2 {
+					t.Fatalf("an allowed session must get its Secret and ClaudeRunner, found %d objects", n)
+				}
+				return
+			}
+			if res.Err == nil || !strings.Contains(res.Err.Error(), tc.message) {
+				t.Fatalf("the creator must be told why: %v", res.Err)
+			}
+			if n := spawned(t, c); n != 0 {
+				t.Fatalf("a refused session must create nothing, found %d objects", n)
+			}
+		})
+	}
+}
+
+func TestRunAccessListAppliesToRedelivery(t *testing.T) {
+	ctx := context.Background()
+	env := envWithAccessList(selfhostedv1alpha1.AuthorizationEnforce)
+	list := accessList("user_1\n")
+	c := newClient(env, list)
+	if res := Run(ctx, c, input(), []byte("j"), ""); res.ExitCode != ExitSubmitted {
+		t.Fatalf("got %+v", res)
+	}
+	list.Data["accounts"] = "user_2\n"
+	if err := c.Update(ctx, list); err != nil {
+		t.Fatal(err)
+	}
+	res := Run(ctx, c, input(), []byte("j"), "")
+	if res.ExitCode != ExitNonRetryable || res.Outcome != outcomeDenied {
+		t.Fatalf("a redelivery for an account taken off the list must be refused: %+v", res)
+	}
+}
+
+// unreadableList is a client whose reads of ConfigMaps fail with err.
+func unreadableList(err error, objs ...client.Object) client.Client {
+	return fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(objs...).
+		WithInterceptorFuncs(interceptor.Funcs{Get: func(ctx context.Context, w client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*corev1.ConfigMap); ok {
+				return err
+			}
+			return w.Get(ctx, key, obj, opts...)
+		}}).Build()
+}
+
+func TestRunAccessListReadFailureIsRetried(t *testing.T) {
+	gr := schema.GroupResource{Resource: "configmaps"}
+	for name, err := range map[string]error{
+		// The orchestrator Role answers Forbidden until it has caught up with a
+		// change of the list's name: the request must come back, not end the session.
+		"forbidden": apierrors.NewForbidden(gr, accessListName, errors.New("no")),
+		"timeout":   apierrors.NewTimeoutError("slow", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := unreadableList(err, envWithAccessList(""), accessList("user_1\n"))
+			res := Run(context.Background(), c, input(), []byte("j"), "")
+			if res.ExitCode != ExitRetryable || res.Outcome != "error" || res.Authorization != "" {
+				t.Fatalf("a list that cannot be read is a retry, never a verdict: %+v", res)
+			}
+			if n := spawned(t, c); n != 0 {
+				t.Fatalf("a list that cannot be read must spawn nothing, found %d objects", n)
+			}
+		})
+	}
+}
+
+func TestRunAuditModeNeverHoldsASessionBack(t *testing.T) {
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "configmaps"}, accessListName, errors.New("no"))
+	c := unreadableList(forbidden, envWithAccessList(selfhostedv1alpha1.AuthorizationAudit), accessList("user_2\n"))
+	res := Run(context.Background(), c, input(), []byte("j"), "")
+	if res.ExitCode != ExitSubmitted || res.Authorization != "" || !strings.Contains(res.Warning, "could not read the access list") {
+		t.Fatalf("audit mode must spawn and warn when the list cannot be read: %+v", res)
+	}
+	if n := spawned(t, c); n != 2 {
+		t.Fatalf("want the Secret and the ClaudeRunner, found %d objects", n)
+	}
+}
+
+func TestWriteLogRecordsTheAccessDecision(t *testing.T) {
+	var buf bytes.Buffer
+	in := input()
+	WriteLog(&buf, in, Result{ExitCode: ExitNonRetryable, Outcome: outcomeDenied, Authorization: AuthorizationDenied, Err: errors.New("account user_1 is not on the list")})
+	for _, want := range []string{`"accountID":"user_1"`, `"authorization":"denied"`, `"outcome":"denied"`} {
+		if !strings.Contains(buf.String(), want) {
+			t.Fatalf("log misses %s: %s", want, buf.String())
+		}
+	}
+	buf.Reset()
+	const email = "creator@example.org"
+	in.AccountID = email
+	WriteLog(&buf, in, Result{Outcome: outcomeSubmitted})
+	if strings.Contains(buf.String(), email) || strings.Contains(buf.String(), `"authorization"`) {
+		t.Fatalf("an email must never be logged, and no verdict without an access list: %s", buf.String())
+	}
+}

@@ -28,7 +28,7 @@ for a deleted environment are removed.
 | `claude_operator_fixed_fleet_replicas` | gauge | `state` (`desired`, `ready`, `updated`) | Fixed-fleet runner replicas; absent in on-demand mode |
 | `claude_operator_environment_runners` | gauge | `phase` (`pending`, `running`) | On-demand ClaudeRunners by phase; absent in fixed mode |
 | `claude_operator_runner_spawn_duration_seconds` | histogram | | Seconds from ClaudeRunner creation to its pod running, measured from the pod's `status.startTime` when set. Buckets 1, 2, 5, 10, 20, 30, 60, 120, 300, 600 |
-| `claude_operator_runners_total` | counter | `outcome` (`created`, `succeeded`, `failed`, `spawn_timeout`) | On-demand runner lifecycle events. `failed` counts every failure once (including `WorkOrderMissing`, `EnvironmentMissing`, `EnvironmentMismatch`, `PodLost` and `SpawnTimeout`); a spawn timeout also counts `spawn_timeout` |
+| `claude_operator_runners_total` | counter | `outcome` (`created`, `succeeded`, `failed`, `spawn_timeout`, `unauthorized`) | On-demand runner lifecycle events. `failed` counts every failure once (including `WorkOrderMissing`, `EnvironmentMissing`, `EnvironmentMismatch`, `PodLost`, `SpawnTimeout` and `Unauthorized`); a spawn timeout also counts `spawn_timeout`, and a runner the [access list](authorization.md) refused or stopped also counts `unauthorized`. Sessions the hook refuses create no runner and are not counted here |
 
 No label carries an email, a JWT or a Secret value.
 

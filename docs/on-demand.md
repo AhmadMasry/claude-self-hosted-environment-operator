@@ -8,7 +8,8 @@ secret, and each incoming session spawns one runner pod with a single-use work o
 
 For an environment named `<env>` it creates a ServiceAccount, Role, RoleBinding and Deployment, all named
 `<env>-orchestrator`. The Role grants `get` on its own `claudeenvironments` object, `create, get` on `clauderunners`
-(plus `list` only when `maxConcurrentRunners` is above 0), and `create, patch, delete` on `secrets`.
+(plus `list` only when `maxConcurrentRunners` is above 0), `create, patch, delete` on `secrets`, and, when
+`spec.authorization` is set, `get` on the one ConfigMap that holds the [access list](authorization.md).
 Because the manager can only grant what it holds, the manager itself needs `create, patch, delete` on Secrets.
 
 Each work order becomes one ClaudeRunner and one pod, both named `<prefix>-<orderID>`, where the prefix
@@ -82,21 +83,24 @@ Anthropic; the hook recognises a redelivered order by its ClaudeRunner name and 
 
 The orchestrator runs the hook once per work order. In order:
 
-1. If the ClaudeRunner for the order (`<prefix>-<orderID>`, see above) exists, exit 0 with outcome `redelivered`.
-2. If `maxConcurrentRunners` is reached, exit 1 with outcome `at_capacity`. The cap is soft: concurrent hook runs can briefly overshoot it.
-3. Create Secret `<orderID>-work-order` (key `jwt`), then the ClaudeRunner, and make the ClaudeRunner owner of the Secret.
-4. If the runner create fails with a non-retryable error, delete the Secret.
+1. If the environment has an [access list](authorization.md) and it does not allow the session creator's
+   account ID, exit 2 with outcome `denied`. Nothing is created. In Audit mode the hook continues.
+2. If the ClaudeRunner for the order (`<prefix>-<orderID>`, see above) exists, exit 0 with outcome `redelivered`.
+3. If `maxConcurrentRunners` is reached, exit 1 with outcome `at_capacity`. The cap is soft: concurrent hook runs can briefly overshoot it.
+4. Create Secret `<orderID>-work-order` (key `jwt`), then the ClaudeRunner, and make the ClaudeRunner owner of the Secret.
+5. If the runner create fails with a non-retryable error, delete the Secret.
 
 The hook's owner references set `controller: true` and leave `blockOwnerDeletion` unset, because the
 `OwnerReferencesPermissionEnforcement` admission plugin (on by default on OpenShift) would otherwise require
 `update` on the owner's `finalizers` subresource, which the orchestrator Role does not grant.
 
-Exit codes: `0` success or redelivered, `1` retryable (at capacity, or a transient API or transport error), `2` non-retryable (the API rejected the request). The hook's
+Exit codes: `0` success or redelivered, `1` retryable (at capacity, a transient API or transport error, or an access list that could not be read), `2` non-retryable (the access list refused the creator, or the API rejected the request). The hook's
 deadline is `onDemand.orchestrator.hookTimeoutSeconds` (minimum 15, default 60) minus 10 seconds, never below
 5 seconds, so it finishes before the orchestrator kills it; the operator passes the timeout as
 `CLAUDE_OPERATOR_HOOK_TIMEOUT_SECONDS`, and the hook assumes 60 when the variable is absent. The hook writes
-one JSON line to stdout with `ts`, `orderID`, `sessionID`, `attempt`, `outcome`,
-`exitCode`, `runner`, `warning`, `error`; token values are redacted. It reads `CLAUDE_OPERATOR_ENVIRONMENT`,
+one JSON line to stdout with `ts`, `orderID`, `sessionID`, `accountID`, `attempt`, `outcome`,
+`authorization` (`allowed`, `denied` or `audit_denied`, only with an access list), `exitCode`, `runner`,
+`warning`, `error`; token values are redacted. It reads `CLAUDE_OPERATOR_ENVIRONMENT`,
 `CLAUDE_OPERATOR_NAMESPACE`, `CLAUDE_OPERATOR_MAX_CONCURRENT_RUNNERS` and
 `CLAUDE_OPERATOR_HOOK_TIMEOUT_SECONDS`; do not set these names in `onDemand.orchestrator.env`, which would
 override them. It never reads
@@ -115,12 +119,13 @@ ClaudeRunners are created by the hook, never by users. Phases: `Pending`, `Runni
 | `PodLost` | The runner pod disappeared (evicted or deleted) before it finished; it is never re-created, because its work order is single-use |
 | `EnvironmentMissing` | The ClaudeEnvironment no longer exists |
 | `EnvironmentMismatch` | The ClaudeRunner is not controlled by the on-demand ClaudeEnvironment its `environmentRef` names; no pod is created |
+| `Unauthorized` | The environment's [access list](authorization.md) does not allow the runner's account. No pod is created; a pod that was running is deleted |
 
 The JWT is mounted at `/etc/claude/environment-secret`, the same volume path as in fixed mode. The
 finalizer `claude.cloudeng.ps/runner-pod` makes deletion remove the pod first.
 `runnerTTLSecondsAfterFinished` (default 300) deletes a finished ClaudeRunner after that many seconds.
 
-    kubectl get crun -A     # columns: Phase, Session, Pod, Age
+    kubectl get crun -A     # columns: Phase, Session, Pod, Age; -o wide adds Account and Reason
 
 ## Orphaned work orders
 
@@ -166,7 +171,7 @@ and `WorkloadApplyFailed`. Status fields: `onDemand.orchestratorReadyReplicas`, 
 |---|---|
 | `claude_operator_environment_runners` | `namespace`, `environment`, `phase` (`pending`, `running`) |
 | `claude_operator_runner_spawn_duration_seconds` (histogram) | `namespace`, `environment` |
-| `claude_operator_runners_total` | `namespace`, `environment`, `outcome` (`created`, `succeeded`, `failed`, `spawn_timeout`) |
+| `claude_operator_runners_total` | `namespace`, `environment`, `outcome` (`created`, `succeeded`, `failed`, `spawn_timeout`, `unauthorized`) |
 
 The fixed-mode series (`claude_operator_environment_ready`, `claude_operator_fixed_fleet_replicas`,
 `claude_operator_drain_budget_seconds`) are unchanged. See [metrics](metrics.md) for types, alert rules and

@@ -102,6 +102,14 @@ func TestOrchestratorRBAC(t *testing.T) {
 		t.Fatalf("list must be granted only with a cap: %+v", role.Rules[1])
 	}
 
+	env.Spec.Authorization = &selfhostedv1alpha1.AuthorizationSpec{AllowedAccountsFrom: selfhostedv1alpha1.AccountListSource{
+		ConfigMapKeyRef: selfhostedv1alpha1.ConfigMapKeyRef{Name: "platform-access", Key: "accounts"}}}
+	role = OrchestratorRole(env)
+	wantList := rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"configmaps"}, Verbs: []string{verbGet}, ResourceNames: []string{"platform-access"}}
+	if len(role.Rules) != 4 || !equalRule(role.Rules[3], wantList) {
+		t.Fatalf("an access list must add get on that one ConfigMap and nothing else: %+v", role.Rules)
+	}
+
 	rb := OrchestratorRoleBinding(env)
 	if rb.RoleRef.Kind != "Role" || rb.RoleRef.Name != testOrchestratorName || rb.Subjects[0].Kind != "ServiceAccount" || rb.Subjects[0].Name != testOrchestratorName {
 		t.Fatalf("rolebinding wrong: %+v", rb)

@@ -106,3 +106,19 @@ func runnerPhaseChanged() predicate.Predicate {
 		return ok1 && ok2 && o.Status.Phase != n.Status.Phase
 	}}
 }
+
+// authorizationChanged lets ClaudeEnvironment events through only when
+// spec.authorization changed, the one part of an environment that can turn a
+// running runner into a refused one.
+func authorizationChanged() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return false },
+		DeleteFunc:  func(event.DeleteEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			o, ok1 := e.ObjectOld.(*selfhostedv1alpha1.ClaudeEnvironment)
+			n, ok2 := e.ObjectNew.(*selfhostedv1alpha1.ClaudeEnvironment)
+			return ok1 && ok2 && !equality.Semantic.DeepEqual(o.Spec.Authorization, n.Spec.Authorization)
+		},
+	}
+}

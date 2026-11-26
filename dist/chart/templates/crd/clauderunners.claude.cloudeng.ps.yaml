@@ -29,6 +29,14 @@ spec:
     - jsonPath: .status.podName
       name: Pod
       type: string
+    - jsonPath: .spec.accountID
+      name: Account
+      priority: 1
+      type: string
+    - jsonPath: .status.reason
+      name: Reason
+      priority: 1
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date

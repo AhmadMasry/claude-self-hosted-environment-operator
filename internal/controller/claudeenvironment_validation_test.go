@@ -129,6 +129,25 @@ var _ = Describe("ClaudeEnvironment CEL validation", func() {
 			e.Spec.OnDemand = &selfhostedv1alpha1.OnDemandSpec{Orchestrator: selfhostedv1alpha1.OrchestratorSpec{
 				ExpectedSpawnSeconds: 60, HookTimeoutSeconds: 60}}
 		}, "hookTimeoutSeconds + 5 must be below"),
+		Entry("access list on a fixed fleet", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Authorization = accessListSpec(selfhostedv1alpha1.AuthorizationEnforce)
+		}, "authorization requires onDemand"),
+		Entry("access list with standby runners", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Fixed = nil
+			e.Spec.OnDemand = &selfhostedv1alpha1.OnDemandSpec{Orchestrator: selfhostedv1alpha1.OrchestratorSpec{MinIdle: 1}}
+			e.Spec.Authorization = accessListSpec(selfhostedv1alpha1.AuthorizationEnforce)
+		}, "authorization cannot be combined with onDemand.orchestrator.minIdle"),
+		Entry("access list mode outside Enforce and Audit", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Fixed = nil
+			e.Spec.OnDemand = &selfhostedv1alpha1.OnDemandSpec{}
+			e.Spec.Authorization = accessListSpec("Deny")
+		}, "spec.authorization.mode"),
+		Entry("access list without a ConfigMap name", func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Fixed = nil
+			e.Spec.OnDemand = &selfhostedv1alpha1.OnDemandSpec{}
+			e.Spec.Authorization = accessListSpec(selfhostedv1alpha1.AuthorizationEnforce)
+			e.Spec.Authorization.AllowedAccountsFrom.ConfigMapKeyRef.Name = ""
+		}, "spec.authorization.allowedAccountsFrom.configMapKeyRef.name"),
 	)
 
 	DescribeTable("rejects every operator-owned runner env name",
