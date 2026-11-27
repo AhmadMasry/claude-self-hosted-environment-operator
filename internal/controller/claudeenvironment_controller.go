@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	selfhostedv1alpha1 "github.com/AhmadMasry/claude-self-hosted-environment-operator/api/v1alpha1"
@@ -67,6 +68,8 @@ const (
 
 	// maxReportedLines caps the line numbers an AccessListInvalid message lists.
 	maxReportedLines = 10
+	// maxReportedSharers caps the environments an EnvironmentKeyShared message names.
+	maxReportedSharers = 5
 )
 
 // ClaudeEnvironmentReconciler reconciles a ClaudeEnvironment object.
@@ -305,8 +308,9 @@ func (r *ClaudeEnvironmentReconciler) resolveSecret(ctx context.Context, env *se
 }
 
 // reportAccessList publishes whether the environment restricts who may use it,
-// and degrades it when the access list is missing or holds lines that are not
-// account IDs. It only reports: the spawn-runner hook and the ClaudeRunner
+// and degrades it when the access list is missing, holds lines that are not
+// account IDs, or can be bypassed through another environment in the namespace
+// that uses the same key. It only reports: the spawn-runner hook and the ClaudeRunner
 // controller make the decisions, from an uncached read.
 func (r *ClaudeEnvironmentReconciler) reportAccessList(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment, pass *statusPass) error {
 	if env.Spec.Authorization == nil {
@@ -316,6 +320,16 @@ func (r *ClaudeEnvironmentReconciler) reportAccessList(ctx context.Context, env 
 	list, err := authz.Load(ctx, r.Client, env)
 	if err != nil {
 		return err
+	}
+	sharers, err := r.environmentsSharingKey(ctx, env)
+	if err != nil {
+		return err
+	}
+	if len(sharers) > 0 {
+		key := env.Spec.EnvironmentSecretRef
+		pass.degradeOnce(r.Recorder, env, selfhostedv1alpha1.ReasonEnvironmentKeyShared, fmt.Sprintf(
+			"Secret %q key %q is also the environment key of %s, which this access list does not restrict: sessions refused here can run there",
+			key.Name, key.Key, sharerNames(sharers)))
 	}
 	ref := env.Spec.Authorization.AllowedAccountsFrom.ConfigMapKeyRef
 	enforced := authz.Enforced(env)
@@ -340,6 +354,67 @@ func (r *ClaudeEnvironmentReconciler) reportAccessList(ctx context.Context, env 
 			msg+"; audit mode refuses nobody")
 	}
 	return nil
+}
+
+// environmentsSharingKey names the other ClaudeEnvironments in the namespace
+// that register runners with the same environment key, meaning the same Secret
+// and key, without being held to the same access list. Their runners serve the
+// same Anthropic environment, so a session this list refuses stays in its queue
+// and can run there. Only what the namespace shows is seen: a copy of the key
+// in another Secret, namespace or cluster is not.
+func (r *ClaudeEnvironmentReconciler) environmentsSharingKey(ctx context.Context, env *selfhostedv1alpha1.ClaudeEnvironment) ([]string, error) {
+	list := &selfhostedv1alpha1.ClaudeEnvironmentList{}
+	if err := r.List(ctx, list, client.InNamespace(env.Namespace),
+		client.MatchingFields{indexSecretName: env.Spec.EnvironmentSecretRef.Name}); err != nil {
+		return nil, err
+	}
+	var names []string
+	for i := range list.Items {
+		other := &list.Items[i]
+		if other.Name == env.Name || !other.DeletionTimestamp.IsZero() ||
+			other.Spec.EnvironmentSecretRef != env.Spec.EnvironmentSecretRef ||
+			equality.Semantic.DeepEqual(other.Spec.Authorization, env.Spec.Authorization) {
+			continue
+		}
+		names = append(names, other.Name)
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+// sharerNames renders `ClaudeEnvironment "a"` or `ClaudeEnvironments "a", "b"`,
+// naming at most maxReportedSharers.
+func sharerNames(names []string) string {
+	shown := names[:min(len(names), maxReportedSharers)]
+	quoted := make([]string, 0, len(shown))
+	for _, n := range shown {
+		quoted = append(quoted, fmt.Sprintf("%q", n))
+	}
+	out := "ClaudeEnvironment " + quoted[0]
+	if len(names) > 1 {
+		out = "ClaudeEnvironments " + strings.Join(quoted, ", ")
+	}
+	if more := len(names) - len(shown); more > 0 {
+		out += fmt.Sprintf(" and %d more", more)
+	}
+	return out
+}
+
+// protectedSiblings maps a ClaudeEnvironment to the other environments in its
+// namespace that have an access list, so they check at once whether the changed
+// environment shares their key.
+func (r *ClaudeEnvironmentReconciler) protectedSiblings(ctx context.Context, obj client.Object) []reconcile.Request {
+	list := &selfhostedv1alpha1.ClaudeEnvironmentList{}
+	if err := r.List(ctx, list, client.InNamespace(obj.GetNamespace())); err != nil {
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		if list.Items[i].Name != obj.GetName() && list.Items[i].Spec.Authorization != nil {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+		}
+	}
+	return reqs
 }
 
 // invalidLines says which lines of an access list are ignored, naming at most
@@ -776,6 +851,8 @@ func (r *ClaudeEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&selfhostedv1alpha1.ClaudeRunner{}, builder.WithPredicates(runnerPhaseChanged())).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.environmentsReferencing(indexSecretName))).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.environmentsReferencing(indexConfigMapNames))).
+		Watches(&selfhostedv1alpha1.ClaudeEnvironment{}, handler.EnqueueRequestsFromMapFunc(r.protectedSiblings),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, o client.Object) []reconcile.Request {
 			name, ok := o.GetLabels()[selfhostedv1alpha1.LabelEnvironment]
 			if !ok || o.GetLabels()[selfhostedv1alpha1.LabelRole] != selfhostedv1alpha1.RoleRunner {

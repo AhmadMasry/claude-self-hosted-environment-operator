@@ -43,6 +43,9 @@ const (
 	ReasonAccessListAudited     = "AccessListAudited"
 	ReasonAccessListMissing     = "AccessListMissing"
 	ReasonAccessListInvalid     = "AccessListInvalid"
+	// ReasonEnvironmentKeyShared degrades an environment with an access list
+	// whose environment key another environment in the namespace also uses.
+	ReasonEnvironmentKeyShared = "EnvironmentKeyShared"
 
 	LabelEnvironment     = "claude.cloudeng.ps/environment"
 	LabelRole            = "claude.cloudeng.ps/role"

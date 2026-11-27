@@ -187,6 +187,12 @@ Run in Audit mode until the events stop naming people who should have access, th
   protected environment picked up, within seconds, sessions the access list had refused the day before.
   That fleet was locked to the same account; an unlocked one locks to whichever session it claims first.
   Give a protected environment a key of its own and register nothing else with it.
+
+  The operator flags the case it can see. When another ClaudeEnvironment in the same namespace names the
+  same Secret and key and is not held to the same access list, the protected environment is `Degraded`
+  with reason `EnvironmentKeyShared` and a message that names the other environment. It cannot see a copy
+  of the key in another Secret, another namespace, another cluster or outside Kubernetes, so the rule
+  above still has to be kept by hand.
 - **Not with standby runners.** `onDemand.orchestrator.minIdle` above 0 is rejected together with
   `spec.authorization`: a standby runner is started before any session exists and then serves whoever
   dispatches next. A protected environment starts each runner when its session arrives.
@@ -219,7 +225,7 @@ Run in Audit mode until the events stop naming people who should have access, th
 | :- | :- |
 | Orchestrator log, one JSON line per hook run | `accountID`, `authorization` (`allowed`, `denied`, `audit_denied`), `outcome` (`denied` for a refusal), `sessionID`, `orderID` |
 | ClaudeRunner | `spec.accountID` for every session that ran; `status.reason: Unauthorized` and a Warning event `Unauthorized` when the controller refused or stopped it; Warning event `UnauthorizedAudit` in Audit mode |
-| ClaudeEnvironment | Condition `AccessRestricted`; `Degraded` with `AccessListMissing` or `AccessListInvalid` |
+| ClaudeEnvironment | Condition `AccessRestricted`; `Degraded` with `AccessListMissing`, `AccessListInvalid` or `EnvironmentKeyShared` |
 | Metrics | `claude_operator_runners_total{outcome="unauthorized"}` counts the runners the controller refused or stopped. Refusals by the hook create no runner and appear in the orchestrator log only |
 
 No email address is read, stored or logged at any point.
