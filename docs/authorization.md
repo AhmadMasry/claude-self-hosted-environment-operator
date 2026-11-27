@@ -176,7 +176,17 @@ Run in Audit mode until the events stop naming people who should have access, th
 - **Not on fixed fleets.** A fixed fleet has no spawn request to check, and the API rejects
   `spec.authorization` there. Restrict a fixed fleet with `runner.settings.lockToAccount`, which Anthropic's
   runner enforces: a pre-locked runner executes the sessions of that one account only. Use one fixed fleet
-  per person, or an on-demand environment for a shared list.
+  per person, or an on-demand environment for a shared list. Anthropic checks the value when the runner
+  registers: it must be the account ID or email address of a member of the environment's organization.
+  With any other value the runner does not start, and the environment reports `RunnerFailedStart` with the
+  runner's `lock_to_account_id must be a user_<id> or an email address` line.
+- **One protected ClaudeEnvironment per environment key.** The list governs only the runners this
+  ClaudeEnvironment starts. A session the hook refuses stays queued at Anthropic, and so does a session the
+  controller stopped. Any other runner registered with the same environment key can claim it: a fixed fleet,
+  standby runners, or a runner outside the cluster. In a test, a fixed fleet started with the key of a
+  protected environment picked up, within seconds, sessions the access list had refused the day before.
+  That fleet was locked to the same account; an unlocked one locks to whichever session it claims first.
+  Give a protected environment a key of its own and register nothing else with it.
 - **Not with standby runners.** `onDemand.orchestrator.minIdle` above 0 is rejected together with
   `spec.authorization`: a standby runner is started before any session exists and then serves whoever
   dispatches next. A protected environment starts each runner when its session arrives.
