@@ -5,6 +5,10 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.1] - 2026-11-27
+
 ### Added
 
 - A ClaudeEnvironment with an access list is `Degraded` with reason `EnvironmentKeyShared` when another
@@ -222,7 +226,8 @@ section for what that promises.
 
 - The manager's `--zap-*` flags; use `--log-level` and `--log-format`.
 
-[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/AhmadMasry/claude-self-hosted-environment-operator/compare/v0.2.0...v0.3.0
