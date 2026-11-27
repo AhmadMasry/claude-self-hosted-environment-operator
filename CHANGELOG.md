@@ -5,7 +5,17 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- A ClaudeEnvironment with an access list is `Degraded` with reason `EnvironmentKeyShared` when another
+  ClaudeEnvironment in its namespace uses the same environment key Secret without being held to the same
+  list. Both serve one Anthropic environment, so a session the list refuses stays queued and the other
+  environment's runners can run it. A key copied to another Secret, namespace or cluster is not detected.
+
+### Changed
+
+- Docs state up front that access lists are a feature of on-demand mode, that a protected environment needs
+  an environment key of its own, and what `runner.settings.lockToAccount` does on a fixed fleet.
 
 ## [0.4.0] - 2026-11-27
 

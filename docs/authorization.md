@@ -5,9 +5,13 @@ organization can dispatch a session to any of its environments"
 ([Harden your deployment](https://code.claude.com/docs/en/self-hosted-environments-deploy#harden-your-deployment)).
 An environment that runs on a production cluster is therefore open to every member of the organization.
 
-`spec.authorization` adds the missing check on the cluster side, for on-demand environments. It names a
-ConfigMap that lists the Anthropic account IDs allowed to use the environment. A session created by anyone
-else gets no pod, and a running session is stopped when its creator is taken off the list.
+`spec.authorization` adds the missing check on the cluster side. It names a ConfigMap that lists the
+Anthropic account IDs allowed to use the environment. A session created by anyone else gets no pod, and a
+running session is stopped when its creator is taken off the list.
+
+**Access lists are a feature of on-demand mode.** They work on environments that set `spec.onDemand` and
+keep `onDemand.orchestrator.minIdle` at 0. Fixed fleets and standby runners are not covered, and the API
+rejects `spec.authorization` there; [Limits](#limits) says what to use instead.
 
 The creator is the account Anthropic names on the spawn request, which its hook contract describes as the
 "tagged ID of the account that enqueued the session".
@@ -167,13 +171,31 @@ Run in Audit mode until the events stop naming people who should have access, th
 
 ## Limits
 
-- **On-demand environments only.** A fixed fleet has no spawn request to check, and the API rejects
+- **On-demand mode only.** The check relies on the spawn request Anthropic sends for each session, which
+  names the session's creator before anything runs. Only on-demand mode has that request.
+- **Not on fixed fleets.** A fixed fleet has no spawn request to check, and the API rejects
   `spec.authorization` there. Restrict a fixed fleet with `runner.settings.lockToAccount`, which Anthropic's
   runner enforces: a pre-locked runner executes the sessions of that one account only. Use one fixed fleet
-  per person, or an on-demand environment for a shared list.
-- **No standby runners.** `onDemand.orchestrator.minIdle` above 0 is rejected together with
+  per person, or an on-demand environment for a shared list. Anthropic checks the value when the runner
+  registers: it must be the account ID or email address of a member of the environment's organization.
+  With any other value the runner does not start, and the environment reports `RunnerFailedStart` with the
+  runner's `lock_to_account_id must be a user_<id> or an email address` line.
+- **One protected ClaudeEnvironment per environment key.** The list governs only the runners this
+  ClaudeEnvironment starts. A session the hook refuses stays queued at Anthropic, and so does a session the
+  controller stopped. Any other runner registered with the same environment key can claim it: a fixed fleet,
+  standby runners, or a runner outside the cluster. In a test, a fixed fleet started with the key of a
+  protected environment picked up, within seconds, sessions the access list had refused the day before.
+  That fleet was locked to the same account; an unlocked one locks to whichever session it claims first.
+  Give a protected environment a key of its own and register nothing else with it.
+
+  The operator flags the case it can see. When another ClaudeEnvironment in the same namespace names the
+  same Secret and key and is not held to the same access list, the protected environment is `Degraded`
+  with reason `EnvironmentKeyShared` and a message that names the other environment. It cannot see a copy
+  of the key in another Secret, another namespace, another cluster or outside Kubernetes, so the rule
+  above still has to be kept by hand.
+- **Not with standby runners.** `onDemand.orchestrator.minIdle` above 0 is rejected together with
   `spec.authorization`: a standby runner is started before any session exists and then serves whoever
-  dispatches next.
+  dispatches next. A protected environment starts each runner when its session arrives.
 - **Sessions without a user account are refused**, since there is no account ID to look up. Claude Tag
   channel sessions are the documented case.
 - **Account IDs only.** There are no groups, and no email addresses.
@@ -203,7 +225,7 @@ Run in Audit mode until the events stop naming people who should have access, th
 | :- | :- |
 | Orchestrator log, one JSON line per hook run | `accountID`, `authorization` (`allowed`, `denied`, `audit_denied`), `outcome` (`denied` for a refusal), `sessionID`, `orderID` |
 | ClaudeRunner | `spec.accountID` for every session that ran; `status.reason: Unauthorized` and a Warning event `Unauthorized` when the controller refused or stopped it; Warning event `UnauthorizedAudit` in Audit mode |
-| ClaudeEnvironment | Condition `AccessRestricted`; `Degraded` with `AccessListMissing` or `AccessListInvalid` |
+| ClaudeEnvironment | Condition `AccessRestricted`; `Degraded` with `AccessListMissing`, `AccessListInvalid` or `EnvironmentKeyShared` |
 | Metrics | `claude_operator_runners_total{outcome="unauthorized"}` counts the runners the controller refused or stopped. Refusals by the hook create no runner and appear in the orchestrator log only |
 
 No email address is read, stored or logged at any point.

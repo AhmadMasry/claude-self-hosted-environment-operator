@@ -231,6 +231,52 @@ var _ = Describe("Access list", func() {
 		Expect(expectStopped(ctx, key)).To(ContainSubstring("account " + bob + " is not on"))
 	})
 
+	It("flags an environment key that another environment in the namespace also uses", func() {
+		ns := newNamespace(ctx)
+		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, accessList(ns, alice))).To(Succeed())
+		env := restrictedEnv(ns, selfhostedv1alpha1.AuthorizationEnforce)
+		Expect(k8sClient.Create(ctx, env)).To(Succeed())
+		key := client.ObjectKeyFromObject(env)
+		degraded := condition(ctx, key, selfhostedv1alpha1.ConditionDegraded)
+		Eventually(degraded, timeout, interval).Should(HaveField("Status", metav1.ConditionFalse))
+
+		By("a fixed fleet that registers with the same key")
+		fleet := fixedEnv(ns)
+		fleet.Name = "fleet"
+		Expect(k8sClient.Create(ctx, fleet)).To(Succeed())
+		Eventually(degraded, timeout, interval).Should(And(
+			haveReason(metav1.ConditionTrue, selfhostedv1alpha1.ReasonEnvironmentKeyShared),
+			HaveField("Message", And(ContainSubstring(`ClaudeEnvironment "fleet"`), ContainSubstring("sessions refused here can run there")))))
+		Expect(condition(ctx, client.ObjectKeyFromObject(fleet), selfhostedv1alpha1.ConditionDegraded)()).To(
+			HaveField("Status", metav1.ConditionFalse), "only the environment with the access list is flagged")
+
+		By("clearing once the fleet uses a key of its own, without waiting for a resync")
+		Expect(k8sClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "fleet-key", Namespace: ns},
+			Data: map[string][]byte{"environment-secret": []byte("ccenvkey_other")}})).To(Succeed())
+		updateEnv(ctx, client.ObjectKeyFromObject(fleet), func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.EnvironmentSecretRef.Name = "fleet-key"
+		})
+		Eventually(degraded, timeout, interval).Should(HaveField("Status", metav1.ConditionFalse))
+
+		By("leaving alone a second environment held to the same list")
+		twin := restrictedEnv(ns, selfhostedv1alpha1.AuthorizationEnforce)
+		twin.Name = "twin"
+		Expect(k8sClient.Create(ctx, twin)).To(Succeed())
+		Consistently(degraded, "2s", interval).Should(HaveField("Status", metav1.ConditionFalse))
+
+		By("flagging it once it only audits")
+		updateEnv(ctx, client.ObjectKeyFromObject(twin), func(e *selfhostedv1alpha1.ClaudeEnvironment) {
+			e.Spec.Authorization.Mode = selfhostedv1alpha1.AuthorizationAudit
+		})
+		Eventually(degraded, timeout, interval).Should(And(
+			haveReason(metav1.ConditionTrue, selfhostedv1alpha1.ReasonEnvironmentKeyShared), HaveField("Message", ContainSubstring(`"twin"`))))
+
+		By("clearing when that environment is deleted")
+		Expect(k8sClient.Delete(ctx, twin)).To(Succeed())
+		Eventually(degraded, timeout, interval).Should(HaveField("Status", metav1.ConditionFalse))
+	})
+
 	It("reports the access list on the environment and grants the orchestrator that one ConfigMap", func() {
 		ns := newNamespace(ctx)
 		Expect(k8sClient.Create(ctx, envSecret(ns, "environment-secret"))).To(Succeed())
