@@ -2,6 +2,9 @@
 #   (umask 077 && cat > ./environment-secret)   # paste, Enter, Ctrl-D
 #   kubectl -n claude-runners create secret generic claude-env-secret --from-file=environment-secret=./environment-secret
 #   rm ./environment-secret
+# Access lists (spec.authorization, docs/authorization.md) are a feature of on-demand mode and are not
+# available on a fixed fleet. To restrict a fixed fleet, lock it to one account with
+# runner.settings.lockToAccount, or use examples/on-demand.yaml.
 apiVersion: claude.cloudeng.ps/v1alpha1
 kind: ClaudeEnvironment
 metadata:

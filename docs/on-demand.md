@@ -79,6 +79,15 @@ and is never re-created, so sessions in progress survive both an orchestrator ro
 upgrade. A work order that the orchestrator was still processing when its pod stopped is redelivered by
 Anthropic; the hook recognises a redelivered order by its ClaudeRunner name and does not spawn twice.
 
+## Access lists
+
+Restricting who may use an environment is a feature of on-demand mode only, because only here does every
+session begin with a spawn request that names its creator. `spec.authorization` names a ConfigMap of allowed
+Anthropic account IDs; the hook refuses any other creator before anything is created, and the ClaudeRunner
+controller stops a running session whose account is removed from the list. It requires
+`orchestrator.minIdle: 0`: a standby runner is started before any session exists. See
+[access lists](authorization.md).
+
 ## Hook contract
 
 The orchestrator runs the hook once per work order. In order:
